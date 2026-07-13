@@ -1,0 +1,37 @@
+# ============================================================
+# ProactiveCare – AI Notification Service
+# Python Dependencies
+# ============================================================
+# Install with: pip install -r requirements.txt
+# ============================================================
+
+# --- Web Framework ---
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+
+# --- AI / LLM ---
+google-genai==1.16.1
+
+# --- Data Validation & Settings ---
+pydantic==2.11.3
+pydantic-settings==2.9.1
+
+# --- Notification Services ---
+twilio==9.6.2
+aiosmtplib==3.0.2
+
+# --- Scheduling ---
+apscheduler==3.11.0
+
+# --- Environment Management ---
+python-dotenv==1.1.0
+
+# --- HTTP Client (async) ---
+httpx==0.28.1
+
+# --- Testing ---
+pytest==8.4.1
+pytest-asyncio==1.0.0
+
+# --- Utilities ---
+email-validator==2.2.0
