@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { STORAGE_KEYS } from '../utils/constants';
 
 /**
  * Base Axios instance — all API calls go through here.
@@ -18,7 +19,7 @@ const api = axios.create({
 // Automatically attaches Bearer token to every request
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('mediconnect_token');
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
