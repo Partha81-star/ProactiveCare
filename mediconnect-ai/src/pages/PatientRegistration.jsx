@@ -91,7 +91,7 @@ const PatientRegistration = () => {
     }
 
     const newPatient = {
-      id: `P-${1046 + patients.length - 4}`,
+      id: `P-${1041 + patients.length}`,
       name: `${form.firstName} ${form.lastName}`,
       age: Number(form.age),
       disease: form.disease,
