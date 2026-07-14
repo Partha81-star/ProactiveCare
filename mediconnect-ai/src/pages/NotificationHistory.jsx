@@ -21,7 +21,7 @@ const NOTIF_TYPES = [
 
 const CHANNELS = [
   { label: 'SMS',        Icon: RiMessage2Line,  color: 'text-emerald-600' },
-  { label: 'Email',      Icon: RiMailLine,      color: 'text-blue-605' },
+  { label: 'Email',      Icon: RiMailLine,      color: 'text-blue-600' },
   { label: 'WhatsApp',   Icon: RiWhatsappLine,  color: 'text-green-600' },
   { label: 'Phone Call', Icon: RiPhoneLine,     color: 'text-amber-600' },
 ];
