@@ -36,8 +36,8 @@ api.interceptors.response.use(
 
     if (status === 401) {
       // Token expired or invalid — clear session and redirect to login
-      localStorage.removeItem('mediconnect_token');
-      localStorage.removeItem('mediconnect_user');
+      localStorage.removeItem(STORAGE_KEYS.TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.USER);
       window.location.href = '/login';
     }
 
