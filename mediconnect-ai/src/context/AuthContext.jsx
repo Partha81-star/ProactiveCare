@@ -13,10 +13,14 @@ export const AuthProvider = ({ children }) => {
     const savedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
     const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
     if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
+      try {
+        setToken(savedToken);
+        setUser(JSON.parse(savedUser));
+      } catch {
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.USER);
+      }
     }
-    setLoading(false);
   }, []);
 
   const login = (userData, authToken) => {
