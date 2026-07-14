@@ -119,7 +119,7 @@ const AppointmentBooking = () => {
     const req = ['patient', 'dept', 'doctor', 'date', 'time', 'priority'];
     if (req.some(k => !form[k])) { showToast('error', 'Please fill in all required fields.'); return; }
     const newApt = {
-      id: `APT-${1009 + appointments.length - 7}`,
+      id: `APT-${1001 + appointments.length}`,
       ...form,
       status: 'Pending',
     };
