@@ -22,7 +22,7 @@ const Settings = () => {
     enableEmail: true,
     enableWhatsapp: false,
     enableVoiceCall: false,
-    apiKey: 'mc_live_9f0a2d38e718b2c9a',
+    apiKey: import.meta.env.VITE_NOTIF_GATEWAY_API_KEY ?? '',
   });
 
   const showToast = (type, message) => {
