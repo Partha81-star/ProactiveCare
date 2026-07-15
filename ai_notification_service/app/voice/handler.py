@@ -90,46 +90,67 @@ def _twiml(xml: str) -> Response:
 
 
 async def _extract_booking_intent(transcription: str) -> dict:
-    """Ask Gemini to parse the patient's speech into structured booking data."""
+    """Ask local Ollama (Llama 3.2) to parse the patient's speech into structured booking data."""
     prompt = BOOKING_EXTRACTION_PROMPT.format(transcription=transcription)
+    ollama_payload = {
+        "model": "llama3.2",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "stream": False,
+        "options": {
+            "temperature": 0.1
+        }
+    }
     try:
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        raw = await asyncio.to_thread(
-            client.models.generate_content,
-            model=settings.GEMINI_MODEL,
-            contents=prompt,
-        )
-        text = raw.text.strip()
-        # Strip markdown code fences if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text)
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post("http://localhost:11434/api/chat", json=ollama_payload)
+            if response.status_code == 200:
+                result = response.json()
+                text = result.get("message", {}).get("content", "").strip()
+                # Strip markdown code fences if present
+                if text.startswith("```"):
+                    text = text.split("```")[1]
+                    if text.startswith("json"):
+                        text = text[4:]
+                # Clean up any trailing code fences
+                if text.endswith("```"):
+                    text = text[:-3].strip()
+                return json.loads(text)
     except Exception as e:
-        logger.error(f"Intent extraction failed: {e}")
-        return {}
+        logger.error(f"Local Ollama intent extraction failed: {e}")
+    return {}
 
 
 async def _generate_confirmation_message(booking: dict) -> str:
-    """Generate a natural confirmation voice script via Gemini."""
+    """Generate a natural confirmation voice script via local Ollama."""
     prompt = CONFIRMATION_PROMPT.format(booking_json=json.dumps(booking, indent=2))
+    ollama_payload = {
+        "model": "llama3.2",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "stream": False,
+        "options": {
+            "temperature": 0.5
+        }
+    }
     try:
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        raw = await asyncio.to_thread(
-            client.models.generate_content,
-            model=settings.GEMINI_MODEL,
-            contents=prompt,
-        )
-        return raw.text.strip()
-    except Exception:
-        # Fallback to templated message
-        doctor = booking.get("doctor") or "our doctor"
-        date = booking.get("date") or "soon"
-        return (
-            f"Your appointment has been booked with {doctor} for {date}. "
-            "You will receive a confirmation SMS shortly. Thank you for calling MediConnect AI!"
-        )
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post("http://localhost:11434/api/chat", json=ollama_payload)
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("message", {}).get("content", "").strip()
+    except Exception as e:
+        logger.error(f"Local Ollama confirmation generation failed: {e}")
+        
+    # Fallback to templated message
+    doctor = booking.get("doctor") or "our doctor"
+    date = booking.get("date") or "soon"
+    return (
+        f"Your appointment has been booked with {doctor} for {date}. "
+        "You will receive a confirmation SMS shortly. Thank you for calling MediConnect AI!"
+    )
 
 
 async def _log_voice_booking_and_notify(booking: dict, caller_phone: str):
