@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.logger import setup_logging, get_logger
 from app.routes import router
+from app.voice.handler import router as voice_router
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -114,6 +115,8 @@ def create_app() -> FastAPI:
     # ── Register Routes ──────────────────────────────────────
     # Include the notification API routes
     application.include_router(router)
+    # Include the AI voice booking routes
+    application.include_router(voice_router)
 
     # Health check endpoint
     @application.get(

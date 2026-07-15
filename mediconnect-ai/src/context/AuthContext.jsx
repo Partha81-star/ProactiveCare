@@ -21,6 +21,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem(STORAGE_KEYS.USER);
       }
     }
+    setLoading(false);
   }, []);
 
   const login = (userData, authToken) => {

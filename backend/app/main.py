@@ -1,17 +1,12 @@
 """
 main.py
 --------
-This is the entrypoint of the FastAPI application. Run it with:
-    uvicorn app.main:app --reload
+FastAPI application entry point.
 
-What happens here:
-1. We create the FastAPI app instance.
-2. We tell SQLAlchemy to create all tables (Patients, Doctors, Appointments)
-   in PostgreSQL if they don't already exist.
-3. We "include" each router (doctor, patient, appointment) so their endpoints
-   become part of the app.
-4. We add CORS middleware so the React frontend (running on a different port)
-   is allowed to call this API.
+Ports:
+  8000 — This backend (patients, doctors, appointments, auth, notifications)
+  8001 — AI Notification microservice
+  5173 — React frontend (Vite dev server)
 """
 
 from fastapi import FastAPI
@@ -19,42 +14,51 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine, Base
 from app.routers import doctor, patient, appointment
+from app.routers import auth, notification as notification_router
 
-# Import models so SQLAlchemy knows about them before create_all() runs.
-# (Without these imports, Base.metadata wouldn't know these tables exist.)
-from app.models import doctor as doctor_model     # noqa: F401
-from app.models import patient as patient_model   # noqa: F401
-from app.models import appointment as appointment_model  # noqa: F401
+# Models — must be imported before create_all() so SQLAlchemy knows about them
+from app.models import doctor as doctor_model       # noqa: F401
+from app.models import patient as patient_model     # noqa: F401
+from app.models import appointment as appt_model    # noqa: F401
+from app.models import notification as notif_model  # noqa: F401
 
-# Create all tables defined by our models, if they don't already exist in the DB.
-# In a real production app you'd use a migration tool (Alembic) instead of this,
-# but create_all() is simplest for a student project / early development.
+# Create all tables in SQLite if they don't exist yet
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="MediConnect AI - Backend",
-    description="Core CRUD APIs for Patients, Doctors, and Appointments",
-    version="0.1.0",
+    title="MediConnect AI – Backend",
+    description="Core CRUD APIs for Patients, Doctors, Appointments, Auth, and Notifications",
+    version="1.0.0",
 )
 
-# Allow the React frontend (e.g. http://localhost:3000) to call this API.
-# "*" is used here for simplicity during development — restrict this to your
-# actual frontend URL before deploying to production.
+# ── CORS ─────────────────────────────────────────────────────────────
+# Allow the React frontend (localhost:5173) and AI service (localhost:8001)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:8001",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register each module's routes with the main app
-app.include_router(doctor.router)
-app.include_router(patient.router)
-app.include_router(appointment.router)
+# ── Routes — all under /api prefix to match frontend api.js ──────────
+app.include_router(auth.router,                prefix="/api")
+app.include_router(doctor.router,              prefix="/api")
+app.include_router(patient.router,             prefix="/api")
+app.include_router(appointment.router,         prefix="/api")
+app.include_router(notification_router.router, prefix="/api")
 
 
 @app.get("/")
 def root():
-    """Simple health-check endpoint to confirm the server is running."""
-    return {"message": "MediConnect AI backend is running", "docs": "/docs"}
+    """Health check — confirms the backend is running."""
+    return {
+        "message": "MediConnect AI backend is running",
+        "docs": "/docs",
+        "version": "1.0.0",
+    }

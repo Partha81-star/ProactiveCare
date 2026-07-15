@@ -19,14 +19,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Read the database connection string from the environment.
-# Falls back to a default local Postgres URL if .env is missing (you should still create .env).
+# Falls back to a default SQLite database file if .env is missing.
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/mediconnect"
+    "sqlite:///./mediconnect.db"
 )
 
-# The engine is the low-level object that actually talks to PostgreSQL
-engine = create_engine(DATABASE_URL)
+# The engine is the low-level object that actually talks to the database
+engine = create_engine(
+    DATABASE_URL, connect_args={"check_same_thread": False}
+)
 
 # SessionLocal is a "factory" — every time we call SessionLocal(), we get a new DB session
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
