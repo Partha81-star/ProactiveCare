@@ -4,9 +4,12 @@ from typing import List, Dict, Optional
 import json
 import httpx
 import re
+import base64
+from app.config import get_settings
 from app.logger import get_logger
 
 logger = get_logger(__name__)
+settings = get_settings()
 router = APIRouter(prefix="/api/v1/voice/local", tags=["Local Voice Simulation"])
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -107,10 +110,45 @@ async def simulate_voice_turn(payload: SimulateRequest):
         except Exception as e:
             logger.error(f"Failed to parse booking JSON from LLM: {e}")
 
+    # Generate ElevenLabs audio stream if API key is present
+    audio_base64 = None
+    if settings.ELEVEN_LABS_API_KEY:
+        audio_base64 = await _synthesize_eleven_labs(clean_reply)
+
     return {
         "reply": clean_reply,
+        "audio_base64": audio_base64,
         "booking_triggered": booking_triggered
     }
+
+async def _synthesize_eleven_labs(text: str) -> Optional[str]:
+    """Convert response text to speech using ElevenLabs API, returning base64 encoding."""
+    voice_id = "21m00Tcm4TlvDq8ikWAM"  # Rachel (default voice)
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    
+    headers = {
+        "xi-api-key": settings.ELEVEN_LABS_API_KEY,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_monolingual_v1",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.75
+        }
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            if resp.status_code == 200:
+                logger.info("Successfully synthesized speech audio from ElevenLabs")
+                return base64.b64encode(resp.content).decode("utf-8")
+            else:
+                logger.warning(f"ElevenLabs synthesis failed with status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        logger.error(f"ElevenLabs connection error: {e}")
+    return None
 
 async def _save_appointment_to_db(data: dict, phone: str):
     patient_name = data.get("patient_name") or "Local Caller"

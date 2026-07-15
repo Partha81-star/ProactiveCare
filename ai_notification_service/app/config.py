@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     BACKEND_BASE_URL: str = "http://localhost:8000"
     BACKEND_WEBHOOK_URL: str = "http://localhost:8000/api/v1/notification-status"
 
+    # ── ElevenLabs ──────────────────────────────────────────────
+    ELEVEN_LABS_API_KEY: str = ""
+
     # ── Logging ──────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
 

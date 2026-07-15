@@ -148,17 +148,23 @@ const AppointmentBooking = () => {
         const newHistory = [...updatedHistory, { role: 'assistant', content: data.reply }];
         setCallHistory(newHistory);
 
-        // Speak back the response
-        speakText(data.reply, () => {
+        // Playback finished callback to resume recognition
+        const handlePlaybackFinished = () => {
           if (data.booking_triggered) {
             setCallState('ended');
             showToast('success', 'Appointment successfully booked via Local AI Receptionist!');
             setTimeout(() => window.location.reload(), 2500);
           } else {
-            // Keep the conversation going
             try { rec.start(); } catch (e) { console.warn("Recognition already active", e); }
           }
-        });
+        };
+
+        // If ElevenLabs returned a base64 audio file, play it back. Else, use browser TTS.
+        if (data.audio_base64) {
+          playAudioBase64(data.audio_base64, handlePlaybackFinished);
+        } else {
+          speakText(data.reply, handlePlaybackFinished);
+        }
       } catch (err) {
         console.error("Local simulated conversation failed", err);
         setCallState('ended');
@@ -192,6 +198,24 @@ const AppointmentBooking = () => {
       if (callback) callback();
     };
     window.speechSynthesis.speak(utterance);
+  };
+
+  // ElevenLabs audio stream player
+  const playAudioBase64 = (base64Data, onEndCallback) => {
+    setCallState('speaking');
+    const audioUrl = `data:audio/mp3;base64,${base64Data}`;
+    const audio = new Audio(audioUrl);
+    audio.onended = () => {
+      if (onEndCallback) onEndCallback();
+    };
+    audio.onerror = (e) => {
+      console.warn("Failed to play base64 audio. Falling back.", e);
+      if (onEndCallback) onEndCallback();
+    };
+    audio.play().catch(err => {
+      console.warn("Audio playback failed, possibly browser policy blocked autoplay.", err);
+      if (onEndCallback) onEndCallback();
+    });
   };
 
   const startVoiceCall = () => {
