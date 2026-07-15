@@ -5,6 +5,7 @@ import {
   RiAlertLine, RiSaveLine, RiRefreshLine, RiSearchLine,
   RiArrowDownSLine, RiEyeLine, RiCloseCircleLine,
   RiCheckboxCircleLine, RiFilterLine, RiErrorWarningLine,
+  RiPhoneFill, RiPhoneLine, RiVolumeUpLine, RiMicFill, RiVolumeMuteLine
 } from 'react-icons/ri';
 
 const PATIENTS = [
@@ -97,6 +98,131 @@ const StatChip = ({ label, value, color }) => (
 
 const AppointmentBooking = () => {
   const [form, setForm] = useState(EMPTY);
+  
+  // Local Voice Agent Simulation States
+  const [showVoiceCall, setShowVoiceCall] = useState(false);
+  const [callState, setCallState] = useState('idle'); // idle, dialing, connected, speaking, listening, processing, ended
+  const [callTranscript, setCallTranscript] = useState('');
+  const [callHistory, setCallHistory] = useState([]);
+  const [assistantReply, setAssistantReply] = useState('');
+  const [recognition, setRecognition] = useState(null);
+
+  // Initialize browser Speech Recognition (STT)
+  const initSpeech = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Try Google Chrome.");
+      return null;
+    }
+    const rec = new SpeechRecognition();
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.lang = 'en-IN';
+
+    rec.onstart = () => {
+      setCallState('listening');
+      setCallTranscript('Listening...');
+    };
+
+    rec.onresult = async (event) => {
+      const text = event.results[0][0].transcript;
+      setCallTranscript(text);
+      setCallState('processing');
+
+      // Add user speech to history
+      const updatedHistory = [...callHistory, { role: 'user', content: text }];
+      setCallHistory(updatedHistory);
+
+      try {
+        const response = await fetch('http://localhost:8001/api/v1/voice/local/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: text,
+            chat_history: updatedHistory
+          })
+        });
+        const data = await response.json();
+        
+        setAssistantReply(data.reply);
+        const newHistory = [...updatedHistory, { role: 'assistant', content: data.reply }];
+        setCallHistory(newHistory);
+
+        // Speak back the response
+        speakText(data.reply, () => {
+          if (data.booking_triggered) {
+            setCallState('ended');
+            showToast('success', 'Appointment successfully booked via Local AI Receptionist!');
+            setTimeout(() => window.location.reload(), 2500);
+          } else {
+            // Keep the conversation going
+            try { rec.start(); } catch (e) { console.warn("Recognition already active", e); }
+          }
+        });
+      } catch (err) {
+        console.error("Local simulated conversation failed", err);
+        setCallState('ended');
+      }
+    };
+
+    rec.onerror = (e) => {
+      console.warn("Speech recognition error", e);
+      if (e.error === 'no-speech') {
+        // Retry listening
+        try { rec.start(); } catch (err) {}
+      } else {
+        setCallState('ended');
+      }
+    };
+
+    setRecognition(rec);
+    return rec;
+  };
+
+  // Browser Text-to-Speech (TTS)
+  const speakText = (text, callback) => {
+    setCallState('speaking');
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const voice = voices.find(v => v.lang.includes('en-IN') || v.lang.includes('en-US')) || voices[0];
+    if (voice) utterance.voice = voice;
+
+    utterance.onend = () => {
+      if (callback) callback();
+    };
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const startVoiceCall = () => {
+    setShowVoiceCall(true);
+    setCallState('dialing');
+    setCallHistory([]);
+    setCallTranscript('');
+    setAssistantReply('');
+
+    setTimeout(() => {
+      setCallState('connected');
+      const rec = recognition || initSpeech();
+      const welcome = "Hello! Welcome to MediConnect local voice receptionist. How can I help you book your appointment today?";
+      setAssistantReply(welcome);
+      setCallHistory([{ role: 'assistant', content: welcome }]);
+      speakText(welcome, () => {
+        if (rec) {
+          try { rec.start(); } catch(e) {}
+        }
+      });
+    }, 2000);
+  };
+
+  const endVoiceCall = () => {
+    window.speechSynthesis.cancel();
+    if (recognition) {
+      try { recognition.stop(); } catch(e) {}
+    }
+    setCallState('ended');
+    setTimeout(() => setShowVoiceCall(false), 800);
+  };
   const [appointments, setAppointments] = useState(MOCK_APPOINTMENTS);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -161,7 +287,14 @@ const AppointmentBooking = () => {
           </h1>
           <p className="text-slate-500 text-sm mt-0.5">Schedule consults and assign clinical departments</p>
         </div>
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-3 flex-wrap items-center">
+          <button
+            type="button"
+            onClick={startVoiceCall}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all hover:scale-[1.02] flex-shrink-0"
+          >
+            <RiPhoneFill className="animate-pulse text-sm" /> Call AI Receptionist
+          </button>
           <StatChip label="Total Slots" value={counts.total}     color="text-slate-800" />
           <StatChip label="Confirmed"   value={counts.confirmed} color="text-green-600" />
           <StatChip label="Pending"     value={counts.pending}   color="text-amber-600" />
@@ -373,6 +506,82 @@ const AppointmentBooking = () => {
                 Cancel Appointment
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Voice Call Simulation Modal */}
+      {showVoiceCall && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md transition-all">
+          <div className="w-full max-w-md bg-slate-955 border border-slate-800 rounded-2xl shadow-2xl p-6 relative overflow-hidden text-center space-y-6">
+            
+            {/* Visual Ringing/Calling pulse */}
+            <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
+              <div className={`absolute inset-0 rounded-full bg-emerald-500/20 animate-ping duration-1000 ${callState === 'connected' || callState === 'speaking' || callState === 'listening' ? '' : 'hidden'}`} />
+              <div className={`absolute inset-2 rounded-full bg-emerald-500/30 animate-pulse ${callState === 'connected' || callState === 'speaking' || callState === 'listening' ? '' : 'hidden'}`} />
+              <div className="w-20 h-20 bg-emerald-650 rounded-full flex items-center justify-center shadow-lg relative z-10">
+                <RiMicFill className="text-white text-3xl animate-pulse" />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-white font-bold text-lg tracking-wide">MediConnect Local AI Voice Agent</h3>
+              <p className="text-[11px] uppercase tracking-widest text-slate-400 font-bold">
+                {callState === 'dialing' && 'Ringing... Connecting local server'}
+                {callState === 'connected' && 'Agent connected'}
+                {callState === 'speaking' && 'Agent is speaking...'}
+                {callState === 'listening' && 'Listening to you...'}
+                {callState === 'processing' && 'Processing your response...'}
+                {callState === 'ended' && 'Call ended'}
+              </p>
+            </div>
+
+            {/* Conversation Window */}
+            <div className="bg-slate-900/50 border border-slate-800/80 rounded-xl p-4 min-h-[140px] max-h-[220px] overflow-y-auto text-left space-y-3.5 text-xs custom-scrollbar">
+              {callHistory.map((ch, idx) => (
+                <div key={idx} className={`flex flex-col ${ch.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <span className="text-[9px] font-bold text-slate-500 uppercase mb-0.5">{ch.role === 'user' ? 'You' : 'AI Receptionist'}</span>
+                  <div className={`px-3.5 py-2 rounded-xl max-w-[85%] leading-relaxed ${ch.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700/50'}`}>
+                    {ch.content}
+                  </div>
+                </div>
+              ))}
+              
+              {/* Live speech transcription */}
+              {callState === 'listening' && callTranscript && (
+                <div className="flex flex-col items-end">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase mb-0.5">Speaking...</span>
+                  <div className="px-3.5 py-2 rounded-xl max-w-[85%] bg-blue-600/50 text-slate-200 italic rounded-tr-none">
+                    {callTranscript}
+                  </div>
+                </div>
+              )}
+
+              {callState === 'processing' && (
+                <div className="flex items-center gap-1.5 text-slate-500 font-medium py-1">
+                  <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <span>Thinking...</span>
+                </div>
+              )}
+            </div>
+
+            {/* Call Action Controls */}
+            <div className="flex justify-center pt-2">
+              <button
+                type="button"
+                onClick={endVoiceCall}
+                className="w-12 h-12 rounded-full bg-red-650 hover:bg-red-700 flex items-center justify-center transition-all shadow-md hover:scale-105"
+                title="Hang Up"
+              >
+                <RiPhoneFill className="text-white text-xl rotate-[135deg]" />
+              </button>
+            </div>
+            
+            <p className="text-[10px] text-slate-500 font-semibold">
+              Uses local browser speech capabilities and local Llama 3.2.
+            </p>
           </div>
         </div>
       )}
