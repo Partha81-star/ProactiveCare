@@ -204,3 +204,74 @@ async def _save_appointment_to_db(data: dict, phone: str):
             await client.post("http://localhost:8001/api/v1/notify", json=sms_payload)
     except Exception as e:
         logger.error(f"Failed to write local voice booking to database: {e}")
+
+
+@router.post("/chat/completions")
+async def custom_llm_chat_completions(request: Request):
+    """
+    OpenAI-compatible Chat Completions endpoint for Vapi.ai Custom LLM.
+    Proxies chat queries directly to local Ollama Llama 3.2 model.
+    """
+    try:
+        body = await request.json()
+        logger.info(f"Received Custom LLM request from Vapi: {json.dumps(body, indent=2)}")
+        
+        incoming_messages = body.get("messages", [])
+        
+        # Re-inject System prompt to ensure local Llama behaves correctly as medical assistant
+        # check if system prompt is already there, if not insert it
+        has_system = any(msg.get("role") == "system" for msg in incoming_messages)
+        if not has_system:
+            # We want Vapi's own system prompt to take precedence, but if none is sent, use our default
+            pass
+
+        ollama_payload = {
+            "model": "llama3.2",
+            "messages": incoming_messages,
+            "stream": False,
+            "options": {
+                "temperature": body.get("temperature", 0.7)
+            }
+        }
+        
+        # Forward tool signatures if Vapi expects tool/function calling from Llama
+        if "tools" in body:
+            ollama_payload["tools"] = body["tools"]
+            
+        async with httpx.AsyncClient(timeout=40) as client:
+            response = await client.post(OLLAMA_URL, json=ollama_payload)
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to communicate with local Ollama.")
+            
+            result = response.json()
+            message = result.get("message", {})
+            
+            # Format as OpenAI Chat Completion expected by Vapi
+            openai_response = {
+                "id": "chatcmpl-vapi-local",
+                "object": "chat.completion",
+                "created": 1677652288,
+                "model": "llama3.2",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": message.get("role", "assistant"),
+                            "content": message.get("content", "")
+                        },
+                        "finish_reason": "stop"
+                    }
+                ]
+            }
+            
+            # Forward tool calls back to Vapi if Llama decided to call the booking tool
+            if "tool_calls" in message:
+                openai_response["choices"][0]["message"]["tool_calls"] = message["tool_calls"]
+                openai_response["choices"][0]["finish_reason"] = "tool_calls"
+                
+            logger.info(f"Returning OpenAI-compatible response: {json.dumps(openai_response, indent=2)}")
+            return openai_response
+            
+    except Exception as e:
+        logger.error(f"Vapi custom LLM completion processing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
