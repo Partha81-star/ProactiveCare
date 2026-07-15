@@ -17,19 +17,17 @@ What happens here:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import engine, Base
-from app.routers import doctor, patient, appointment
+from app.routers import doctor, patient, appointment, medical_report, prescription
 
-# Import models so SQLAlchemy knows about them before create_all() runs.
-# (Without these imports, Base.metadata wouldn't know these tables exist.)
-from app.models import doctor as doctor_model     # noqa: F401
-from app.models import patient as patient_model   # noqa: F401
-from app.models import appointment as appointment_model  # noqa: F401
-
-# Create all tables defined by our models, if they don't already exist in the DB.
-# In a real production app you'd use a migration tool (Alembic) instead of this,
-# but create_all() is simplest for a student project / early development.
-Base.metadata.create_all(bind=engine)
+# NOTE: Table creation is now handled by Alembic migrations, not by this file.
+# Previously this used Base.metadata.create_all(bind=engine) to auto-create
+# tables on startup. That approach can't handle schema CHANGES (e.g. adding
+# a column to an existing table), so we switched to Alembic.
+#
+# Before running the server for the first time (or after pulling new model
+# changes from git), run this once from the project root:
+#     alembic upgrade head
+# See README.md for full instructions.
 
 app = FastAPI(
     title="MediConnect AI - Backend",
@@ -52,6 +50,8 @@ app.add_middleware(
 app.include_router(doctor.router)
 app.include_router(patient.router)
 app.include_router(appointment.router)
+app.include_router(medical_report.router)
+app.include_router(prescription.router)
 
 
 @app.get("/")

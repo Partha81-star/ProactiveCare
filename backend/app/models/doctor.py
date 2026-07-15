@@ -24,3 +24,5 @@ class Doctor(Base):
     # It doesn't create a DB column — it's a convenience for querying in Python,
     # e.g. some_doctor.appointments will give a list of Appointment objects.
     appointments = relationship("Appointment", back_populates="doctor")
+    medical_reports = relationship("MedicalReport", back_populates="doctor")
+    prescriptions = relationship("Prescription", back_populates="doctor")

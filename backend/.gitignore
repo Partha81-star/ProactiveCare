@@ -1,0 +1,11 @@
+# Uploaded files should never be committed - only the folder structure
+uploads/*
+!uploads/medical_reports/
+uploads/medical_reports/*
+!uploads/medical_reports/.gitkeep
+
+# Local env/venv (also covered by root .gitignore, kept here for clarity if backend/ is used standalone)
+.env
+venv/
+__pycache__/
+*.pyc

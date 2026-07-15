@@ -24,3 +24,5 @@ class Patient(Base):
 
     # Link back to this patient's appointments (Python-side convenience only)
     appointments = relationship("Appointment", back_populates="patient")
+    medical_reports = relationship("MedicalReport", back_populates="patient")
+    prescriptions = relationship("Prescription", back_populates="patient")

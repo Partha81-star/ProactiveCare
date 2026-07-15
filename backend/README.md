@@ -54,7 +54,36 @@ DATABASE_URL=postgresql://postgres:YOUR_PASSWORD_HERE@localhost:5432/mediconnect
 
 ---
 
-## 4. Run the server
+## 4. Set up the database tables (Alembic)
+
+This project uses **Alembic** to manage database tables instead of auto-creating
+them on startup. This means you need to run one command before starting the
+server for the first time:
+
+```powershell
+alembic upgrade head
+```
+
+This reads the migration files in `migrations/versions/` and creates the
+`patients`, `doctors`, and `appointments` tables in your PostgreSQL database.
+
+**When do I need to run this again?**
+Any time you `git pull` and someone (including you) has added a new Alembic
+migration file (e.g. after Auth adds a `users` table). Run `alembic upgrade head`
+again to bring your local database up to date.
+
+**If you ever change a model** (e.g. add a new column to `Patient`), generate
+a new migration with:
+```powershell
+alembic revision --autogenerate -m "short description of the change"
+alembic upgrade head
+```
+Then commit the new file that appears in `migrations/versions/` along with
+your model change — this keeps the whole team's database schema in sync.
+
+---
+
+## 5. Run the server
 
 ```powershell
 uvicorn app.main:app --reload
@@ -69,7 +98,7 @@ The `--reload` flag auto-restarts the server whenever you edit a file — useful
 
 ---
 
-## 5. Test the API
+## 6. Test the API
 
 Open your browser to:
 
@@ -87,16 +116,21 @@ in PostgreSQL the first time you run the server.
 
 ---
 
-## 6. Project structure explained
+## 7. Project structure explained
 
 ```
-app/
-├── main.py           # App entrypoint — starts the server, registers routes
-├── database.py        # DB connection setup
-├── models/            # SQLAlchemy models = database table definitions
-├── schemas/            # Pydantic schemas = API input/output validation
-├── crud/                # Actual database operations (create/read/update/delete)
-└── routers/               # API endpoint definitions (URLs + HTTP methods)
+backend/
+├── app/
+│   ├── main.py           # App entrypoint — starts the server, registers routes
+│   ├── database.py        # DB connection setup
+│   ├── models/            # SQLAlchemy models = database table definitions
+│   ├── schemas/            # Pydantic schemas = API input/output validation
+│   ├── crud/                # Actual database operations (create/read/update/delete)
+│   └── routers/               # API endpoint definitions (URLs + HTTP methods)
+├── migrations/            # Alembic migration files (database version history)
+│   ├── env.py               # Tells Alembic how to connect + which models to track
+│   └── versions/               # Each file here = one database change, in order
+└── alembic.ini              # Alembic configuration file
 ```
 
 **Why split into models / schemas / crud / routers?**
@@ -112,12 +146,29 @@ touching your router code at all.
 
 ---
 
-## 7. What's next (not included in this scaffold)
+## 8b. Medical Reports & Prescriptions (new)
 
-- JWT Authentication + role-based access (Admin/Doctor/Patient)
-- Alembic migrations (instead of `create_all`) once schema stabilizes
-- Notification module (SMS/WhatsApp/Email)
-- AI Engine integration (Gemini API)
+**Medical Reports** now support real file uploads (PDF, JPG, PNG):
+- `POST /medical-reports/upload` — multipart form: `patient_id`, `doctor_id`, `report_type`, `report_date`, `status`, `notes`, and the `file` itself
+- `GET /medical-reports/{id}/download` — downloads the original file back
+- Files are stored on disk under `backend/uploads/medical_reports/` — this folder is git-ignored (see `.gitignore`), so files stay local to each machine and never get pushed to the repo
+- Deleting a report also deletes its file from disk automatically
+
+**Prescriptions** use a header + items structure — one prescription can hold multiple medicines:
+- `POST /prescriptions/` — send patient/doctor info plus an `items` list of medicines in one request (see `schemas/prescription.py` for the exact shape)
+- `POST /prescriptions/{id}/items` — add one more medicine to an existing prescription
+- `DELETE /prescriptions/{id}/items/{item_id}` — remove a single medicine
+- Deleting a whole prescription automatically deletes all its medicine items too
+
+Test both of these live at `/docs` — Swagger UI supports file upload testing directly in the browser (look for the "Choose File" button on the upload endpoint).
+
+---
+
+## 9. What's next (not included in this scaffold)
+
+- ~~Alembic migrations~~ ✅ Done
+- Auth is not planned for this phase (handled separately by the team)
+- Notification module (SMS/WhatsApp/Email) — being built by Parth in `ai_notification_service/`
 - Docker setup for deployment
 
 Let me know when you're ready for the next module and we'll build it the same way.
