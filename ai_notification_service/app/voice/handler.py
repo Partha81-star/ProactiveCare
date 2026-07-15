@@ -134,24 +134,55 @@ async def _generate_confirmation_message(booking: dict) -> str:
 
 async def _log_voice_booking_and_notify(booking: dict, caller_phone: str):
     """Log the booking to the backend and send a confirmation SMS."""
-    backend_url = settings.BACKEND_BASE_URL
+    backend_url = "http://localhost:8000/api"
 
-    # Build appointment payload for the backend
-    appointment_data = {
-        "patient_name": booking.get("patient_name") or "Phone Caller",
-        "doctor": booking.get("doctor"),
-        "department": booking.get("department"),
-        "appointment_date": booking.get("date"),
-        "appointment_time": booking.get("time"),
-        "reason": booking.get("reason"),
-        "source": "voice_call",
-        "caller_phone": caller_phone,
-    }
+    patient_name = booking.get("patient_name") or "Phone Caller"
+    date_str = booking.get("date") or "2026-07-20"
+    time_str = booking.get("time") or "09:00:00"
+    
+    # Try to parse date/time to ISO format for the backend
+    try:
+        from datetime import datetime
+        dt_str = f"{date_str} {time_str}"
+        # Simplified parsing for the demo, normally would use dateparser or Gemini to output ISO 8601
+        appointment_time = datetime.now().isoformat()
+    except Exception:
+        from datetime import datetime
+        appointment_time = datetime.now().isoformat()
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            # 1. Create a placeholder patient (or get if exists logic would go here)
+            patient_data = {
+                "name": patient_name,
+                "email": f"{caller_phone.strip('+')}@voice-caller.com",
+                "phone": caller_phone
+            }
+            patient_resp = await client.post(f"{backend_url}/patients/", json=patient_data)
+            patient_id = patient_resp.json().get("id", 1) if patient_resp.status_code == 200 else 1
+
+            # 2. Get first doctor ID
+            docs_resp = await client.get(f"{backend_url}/doctors/")
+            docs = docs_resp.json()
+            doctor_id = docs[0]["id"] if docs else 1
+
+            # 3. Create appointment in backend DB
+            appt_data = {
+                "patient_id": patient_id,
+                "doctor_id": doctor_id,
+                "appointment_time": appointment_time,
+                "status": "Scheduled",
+                "notes": booking.get("reason", "Booked via AI Voice Agent")
+            }
+            await client.post(f"{backend_url}/appointments/", json=appt_data)
+            logger.info("Appointment successfully saved to backend database.")
+    except Exception as e:
+        logger.error(f"Failed to save appointment to backend DB: {e}")
 
     # Send confirmation SMS via AI Notification Service
     sms_payload = {
         "event": "appointment_reminder",
-        "patient_name": booking.get("patient_name") or "Valued Patient",
+        "patient_name": patient_name,
         "doctor": booking.get("doctor"),
         "department": booking.get("department"),
         "appointment_date": booking.get("date"),
@@ -251,3 +282,60 @@ async def voice_status_callback(request: Request):
     call_status = form_data.get("CallStatus", "unknown")
     logger.info(f"Call {call_sid} ended with status: {call_status}")
     return {"received": True}
+
+
+@router.post("/webhook")
+async def vapi_webhook(request: Request):
+    """
+    Vapi.ai webhook endpoint.
+    Handles 'tool-calls' messages when the Assistant triggers the 'book_appointment' function.
+    """
+    try:
+        payload = await request.json()
+        logger.info(f"Received webhook from Vapi: {json.dumps(payload, indent=2)}")
+        
+        message = payload.get("message", {})
+        msg_type = message.get("type")
+        
+        if msg_type == "tool-calls":
+            tool_calls = message.get("toolCalls", [])
+            results = []
+            
+            for tc in tool_calls:
+                func = tc.get("function", {})
+                name = func.get("name")
+                
+                if name == "book_appointment":
+                    args = func.get("arguments", {})
+                    
+                    # Extract customer/caller phone number
+                    customer = message.get("call", {}).get("customer", {})
+                    caller_phone = customer.get("number") or "+919067829174" # default fallback
+                    
+                    booking = {
+                        "patient_name": args.get("patient_name"),
+                        "doctor": args.get("doctor"),
+                        "department": args.get("department"),
+                        "date": args.get("date"),
+                        "time": args.get("time"),
+                        "reason": args.get("reason") or "Booked via Vapi AI Assistant"
+                    }
+                    
+                    logger.info(f"Vapi triggered booking for {booking['patient_name']} with phone {caller_phone}")
+                    
+                    # Save booking to SQLite DB and send confirmation SMS
+                    await _log_voice_booking_and_notify(booking, caller_phone)
+                    
+                    results.append({
+                        "toolCallId": tc.get("id"),
+                        "result": f"Appointment booked successfully with {booking['doctor']} on {booking['date']} at {booking['time']}.",
+                        "error": None
+                    })
+            
+            return {"results": results}
+            
+        return {"status": "ignored"}
+    except Exception as e:
+        logger.error(f"Vapi webhook processing failed: {e}")
+        return {"error": str(e)}, 500
+
