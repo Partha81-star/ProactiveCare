@@ -1,29 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getAllPatients, registerPatient } from '../services/patientService';
+import { getAllDoctors } from '../services/doctorService';
 import {
   RiUserLine, RiUserHeartLine, RiPhoneLine, RiMailLine,
   RiMapPinLine, RiVirusLine, RiStethoscopeLine, RiCalendarLine,
   RiTranslate2, RiBellLine, RiSaveLine, RiRefreshLine,
   RiUserAddLine, RiHashtag, RiArrowDownSLine,
-  RiCheckboxCircleLine, RiCloseCircleLine,
+  RiCheckboxCircleLine, RiCloseCircleLine, RiErrorWarningLine
 } from 'react-icons/ri';
 
 const GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 const DISEASES = ['Hypertension', 'Diabetes Type 2', 'Asthma', 'Arthritis', 'Cardiac Disease', 'Neurological Disorder', 'Orthopaedic Issue', 'General Checkup', 'Other'];
-const DOCTORS = ['Dr. Emily Chen – Cardiology', 'Dr. Raj Patel – Orthopedics', 'Dr. Lisa Wong – Neurology', 'Dr. James Miller – General', 'Dr. Sofia Alvarez – Pediatrics', 'Dr. Ahmed Hassan – Pulmonology'];
 const LANGUAGES = ['English', 'Hindi', 'Tamil', 'Telugu', 'Marathi', 'Bengali', 'Gujarati', 'Kannada', 'Malayalam'];
 const NOTIF_METHODS = [
   { value: 'sms',      label: 'SMS',         icon: '💬' },
   { value: 'email',    label: 'Email',        icon: '📧' },
   { value: 'whatsapp', label: 'WhatsApp',     icon: '📲' },
   { value: 'call',     label: 'Phone Call',   icon: '📞' },
-];
-
-const RECENT_PATIENTS = [
-  { id: 'P-1041', name: 'Sarah Johnson',   age: 34, disease: 'Diabetes Type 2',       doctor: 'Dr. Emily Chen',   status: 'Active'    },
-  { id: 'P-1042', name: 'Mark Thompson',   age: 52, disease: 'Cardiac Disease',       doctor: 'Dr. Raj Patel',    status: 'Active'    },
-  { id: 'P-1043', name: 'Priya Nair',      age: 28, disease: 'Asthma',               doctor: 'Dr. Lisa Wong',    status: 'Recovered' },
-  { id: 'P-1044', name: 'Alex Rodriguez',  age: 61, disease: 'Hypertension',          doctor: 'Dr. James Miller', status: 'Active'    },
-  { id: 'P-1045', name: 'Nina Shah',       age: 8,  disease: 'General Checkup',      doctor: 'Dr. Sofia Alvarez',status: 'Recovered' },
 ];
 
 const INITIAL = {
@@ -72,7 +65,8 @@ const FormSection = ({ icon: Icon, title }) => (
 const PatientRegistration = () => {
   const [form, setForm] = useState(INITIAL);
   const [toast, setToast] = useState(null);
-  const [patients, setPatients] = useState(RECENT_PATIENTS);
+  const [patients, setPatients] = useState([]);
+  const [doctorsList, setDoctorsList] = useState([]);
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -81,7 +75,30 @@ const PatientRegistration = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleSave = (e) => {
+  const fetchPatients = async () => {
+    try {
+      const data = await getAllPatients();
+      setPatients(data);
+    } catch (e) {
+      console.error("Failed to load patients list", e);
+    }
+  };
+
+  const fetchDoctors = async () => {
+    try {
+      const data = await getAllDoctors();
+      setDoctorsList(data);
+    } catch (e) {
+      console.error("Failed to load doctors list", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchPatients();
+    fetchDoctors();
+  }, []);
+
+  const handleSave = async (e) => {
     e.preventDefault();
     const required = ['firstName', 'lastName', 'age', 'gender', 'phone', 'disease', 'doctorAssigned', 'appointmentDate'];
     const missing = required.filter(k => !form[k]);
@@ -90,17 +107,42 @@ const PatientRegistration = () => {
       return;
     }
 
-    const newPatient = {
-      id: `P-${1041 + patients.length}`,
-      name: `${form.firstName} ${form.lastName}`,
-      age: Number(form.age),
-      disease: form.disease,
-      doctor: form.doctorAssigned.split(' – ')[0],
-      status: 'Active',
-    };
-    setPatients(p => [newPatient, ...p]);
-    showToast('success', `Patient ${newPatient.name} registered successfully.`);
-    setForm(INITIAL);
+    try {
+      // 1. Create Patient
+      const patientPayload = {
+        name: `${form.firstName} ${form.lastName}`,
+        email: form.email || `${form.firstName.toLowerCase()}.${form.lastName.toLowerCase()}@mediconnect.com`,
+        phone: form.phone,
+        preferred_language: form.preferredLanguage || 'English',
+        medical_history: form.disease
+      };
+      
+      const patient = await registerPatient(patientPayload);
+      const patientId = patient.id;
+
+      // 2. Match Doctor by Name
+      const matchedDoctor = doctorsList.find(d => d.name === form.doctorAssigned);
+      const doctorId = matchedDoctor ? matchedDoctor.id : 1;
+
+      // 3. Create Appointment (default to 10:00 AM)
+      const apptPayload = {
+        patient_id: patientId,
+        doctor_id: doctorId,
+        appointment_time: `${form.appointmentDate}T10:00:00`,
+        status: 'Scheduled',
+        notes: form.disease
+      };
+      
+      const { bookAppointment } = await import('../services/appointmentService');
+      await bookAppointment(apptPayload);
+
+      showToast('success', `Patient ${patientPayload.name} registered and appointment created!`);
+      setForm(INITIAL);
+      fetchPatients();
+    } catch (err) {
+      console.error("Failed to save patient:", err);
+      showToast('error', err.message || 'Failed to save patient record.');
+    }
   };
 
   const handleReset = () => {
@@ -195,7 +237,7 @@ const PatientRegistration = () => {
               <Field label="Doctor Assigned" required>
                 <IconSelect icon={RiStethoscopeLine} value={form.doctorAssigned} onChange={set('doctorAssigned')}>
                   <option value="">Select doctor</option>
-                  {DOCTORS.map(d => <option key={d} value={d}>{d}</option>)}
+                  {doctorsList.map(d => <option key={d.name} value={d.name}>{d.name} – {d.department}</option>)}
                 </IconSelect>
               </Field>
               <Field label="Appointment Date" required>
@@ -262,24 +304,23 @@ const PatientRegistration = () => {
               <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 uppercase tracking-wider">
                 <th className="px-6 py-3 font-semibold">Patient ID</th>
                 <th className="px-6 py-3 font-semibold">Full Name</th>
-                <th className="px-6 py-3 font-semibold">Age</th>
+                <th className="px-6 py-3 font-semibold">Email</th>
+                <th className="px-6 py-3 font-semibold">Phone</th>
                 <th className="px-6 py-3 font-semibold">Condition</th>
-                <th className="px-6 py-3 font-semibold">Doctor Assigned</th>
                 <th className="px-6 py-3 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {patients.map(({ id, name, age, disease, doctor, status }) => (
+              {patients.map(({ id, name, email, phone, medical_history }) => (
                 <tr key={id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-3 font-mono font-bold text-blue-600">{id}</td>
+                  <td className="px-6 py-3 font-mono font-bold text-blue-600">P-{id}</td>
                   <td className="px-6 py-3 font-semibold text-slate-800">{name}</td>
-                  <td className="px-6 py-3">{age} years</td>
-                  <td className="px-6 py-3 font-medium">{disease}</td>
-                  <td className="px-6 py-3 text-slate-500">{doctor}</td>
+                  <td className="px-6 py-3">{email}</td>
+                  <td className="px-6 py-3">{phone}</td>
+                  <td className="px-6 py-3 font-medium">{medical_history || 'General'}</td>
                   <td className="px-6 py-3">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full
-                      ${status === 'Active' ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {status}
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-700">
+                      Active
                     </span>
                   </td>
                 </tr>

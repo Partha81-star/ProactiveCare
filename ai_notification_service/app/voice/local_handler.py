@@ -100,13 +100,14 @@ async def simulate_voice_turn(payload: SimulateRequest):
             json_str = json_match.group(1)
             booking_data = json.loads(json_str)
             
-            if booking_data.get("action") == "book_appointment":
+            # Robust verification: check for action trigger OR presence of key fields
+            if booking_data.get("action") == "book_appointment" or ("patient_name" in booking_data and "doctor" in booking_data):
                 booking_triggered = True
                 
                 # Strip the JSON block from the speech text so the browser doesn't read the raw JSON
                 clean_reply = re.sub(r"```json\s*(.*?)\s*```", "", reply_text, flags=re.DOTALL).strip()
                 
-                # Execute the SQLite DB update in the background
+                # Execute the SQLite DB update
                 await _save_appointment_to_db(booking_data, payload.phone)
         except Exception as e:
             logger.error(f"Failed to parse booking JSON from LLM: {e}")
@@ -232,7 +233,7 @@ async def _save_appointment_to_db(data: dict, phone: str):
                 "phone": phone
             }
             p_res = await client.post(f"{BACKEND_URL}/patients/", json=patient_payload)
-            patient_id = p_res.json().get("id", 1) if p_res.status_code == 200 else 1
+            patient_id = p_res.json().get("id", 1) if p_res.status_code in (200, 201) else 1
 
             # 2. Get doctors list and match doctor name dynamically
             d_res = await client.get(f"{BACKEND_URL}/doctors/")

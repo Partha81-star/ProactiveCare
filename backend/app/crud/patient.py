@@ -18,6 +18,9 @@ def get_patients(db: Session, skip: int = 0, limit: int = 100):
 
 
 def create_patient(db: Session, patient: PatientCreate):
+    db_patient = db.query(Patient).filter(Patient.email == patient.email).first()
+    if db_patient:
+        return db_patient
     db_patient = Patient(**patient.model_dump())
     db.add(db_patient)
     db.commit()
