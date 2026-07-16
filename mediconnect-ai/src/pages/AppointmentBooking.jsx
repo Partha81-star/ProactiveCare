@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { getAllAppointments } from '../services/appointmentService';
 import {
   RiCalendarCheckLine, RiUserHeartLine, RiStethoscopeLine,
   RiHospitalLine, RiCalendarLine, RiTimeLine, RiFileTextLine,
@@ -247,11 +248,86 @@ const AppointmentBooking = () => {
     setCallState('ended');
     setTimeout(() => setShowVoiceCall(false), 800);
   };
-  const [appointments, setAppointments] = useState(MOCK_APPOINTMENTS);
+  const [appointments, setAppointments] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [toast, setToast] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
+
+  // Time formatter helper
+  const formatTime = (isoString) => {
+    try {
+      const date = new Date(isoString);
+      let hours = date.getHours();
+      const minutes = date.getMinutes();
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12; 
+      const minutesStr = minutes < 10 ? '0' + minutes : minutes;
+      return `${hours}:${minutesStr} ${ampm}`;
+    } catch (e) {
+      return '10:00 AM';
+    }
+  };
+
+  // Fetch appointments from API
+  const fetchAppointments = async () => {
+    try {
+      const data = await getAllAppointments();
+      const mapped = data.map(apt => {
+        let dateVal = '2026-07-20';
+        if (apt.appointment_time) {
+          dateVal = apt.appointment_time.split('T')[0];
+        }
+        
+        return {
+          id: `APT-${apt.id}`,
+          patient: apt.patient?.name || 'Local Caller',
+          doctor: apt.doctor?.name || 'General Practitioner',
+          dept: apt.doctor?.department || 'General',
+          date: dateVal,
+          time: apt.appointment_time ? formatTime(apt.appointment_time) : '10:00 AM',
+          reason: apt.notes || 'Booked via AI receptionist',
+          priority: 'Medium',
+          status: apt.status || 'Pending'
+        };
+      });
+      setAppointments(mapped);
+    } catch (err) {
+      console.error("Failed to load database appointments:", err);
+    }
+  };
+
+  // Set up real-time websocket and pull initial list
+  useEffect(() => {
+    fetchAppointments();
+
+    const socketUrl = 'ws://localhost:8000/ws/appointments';
+    let socket = new WebSocket(socketUrl);
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.event === 'refresh_appointments') {
+          console.info("WebSocket Event: Refreshing dashboard appointments list dynamically!");
+          fetchAppointments();
+        }
+      } catch (e) {
+        console.error("Failed to parse websocket message", e);
+      }
+    };
+
+    socket.onclose = () => {
+      console.warn("WebSocket disconnected. Reconnecting in 5s...");
+      setTimeout(() => {
+        fetchAppointments(); // fallback fetch
+      }, 5000);
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, []);
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
   const setDirect = (k, v) => setForm(f => ({ ...f, [k]: v }));

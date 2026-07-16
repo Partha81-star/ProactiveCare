@@ -7,6 +7,8 @@ Pydantic schemas for Appointment API requests/responses.
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from app.schemas.patient import PatientOut
+from app.schemas.doctor import DoctorOut
 
 
 class AppointmentBase(BaseModel):
@@ -30,6 +32,8 @@ class AppointmentUpdate(BaseModel):
 
 class AppointmentOut(AppointmentBase):
     id: int
+    patient: Optional[PatientOut] = None
+    doctor: Optional[DoctorOut] = None
 
     class Config:
         from_attributes = True

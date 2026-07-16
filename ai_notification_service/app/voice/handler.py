@@ -153,27 +153,86 @@ async def _generate_confirmation_message(booking: dict) -> str:
     )
 
 
+def _parse_datetime_string(date_str: str, time_str: str) -> str:
+    """Parse relative natural language date and time strings into standard ISO 8601 format."""
+    import datetime
+    import re
+    now = datetime.datetime.now()
+    target_date = now.date()
+
+    if not date_str:
+        date_str = "today"
+    if not time_str:
+        time_str = "10:00 AM"
+
+    clean_date = date_str.lower().strip()
+    
+    # Relative date rules
+    if "tomorrow" in clean_date:
+        target_date = (now + datetime.timedelta(days=1)).date()
+    elif "day after tomorrow" in clean_date:
+        target_date = (now + datetime.timedelta(days=2)).date()
+    elif "today" in clean_date:
+        target_date = now.date()
+    else:
+        # Match "July 20", "20 July", "20th July", etc.
+        months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        found_month = None
+        for m in months:
+            if m in clean_date:
+                found_month = months.index(m) + 1
+                break
+        
+        day_match = re.search(r"\b(\d{1,2})\b", clean_date)
+        if day_match and found_month:
+            day = int(day_match.group(1))
+            year = now.year
+            try:
+                target_date = datetime.date(year, found_month, day)
+                if target_date < now.date():
+                    target_date = datetime.date(year + 1, found_month, day)
+            except ValueError:
+                pass
+
+    # Time parsing
+    clean_time = time_str.lower().strip()
+    hour = 10
+    minute = 0
+    
+    is_pm = "pm" in clean_time
+    time_digits = re.findall(r"\d+", clean_time)
+    
+    if len(time_digits) >= 2:
+        hour = int(time_digits[0])
+        minute = int(time_digits[1])
+    elif len(time_digits) == 1:
+        hour = int(time_digits[0])
+        minute = 0
+        
+    if is_pm and hour < 12:
+        hour += 12
+    elif not is_pm and hour == 12:
+        hour = 0
+        
+    final_dt = datetime.datetime.combine(target_date, datetime.time(hour, minute))
+    return final_dt.isoformat()
+
+
 async def _log_voice_booking_and_notify(booking: dict, caller_phone: str):
-    """Log the booking to the backend and send a confirmation SMS."""
+    """Log the booking to the backend database dynamically and trigger confirmation SMS."""
     backend_url = "http://localhost:8000/api"
 
     patient_name = booking.get("patient_name") or "Phone Caller"
-    date_str = booking.get("date") or "2026-07-20"
-    time_str = booking.get("time") or "09:00:00"
+    doctor_name = booking.get("doctor") or "General Practitioner"
+    date_str = booking.get("date") or "today"
+    time_str = booking.get("time") or "10:00 AM"
     
-    # Try to parse date/time to ISO format for the backend
-    try:
-        from datetime import datetime
-        dt_str = f"{date_str} {time_str}"
-        # Simplified parsing for the demo, normally would use dateparser or Gemini to output ISO 8601
-        appointment_time = datetime.now().isoformat()
-    except Exception:
-        from datetime import datetime
-        appointment_time = datetime.now().isoformat()
+    # Parse natural language date/time dynamically
+    appointment_time = _parse_datetime_string(date_str, time_str)
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            # 1. Create a placeholder patient (or get if exists logic would go here)
+            # 1. Create or get patient
             patient_data = {
                 "name": patient_name,
                 "email": f"{caller_phone.strip('+')}@voice-caller.com",
@@ -182,10 +241,25 @@ async def _log_voice_booking_and_notify(booking: dict, caller_phone: str):
             patient_resp = await client.post(f"{backend_url}/patients/", json=patient_data)
             patient_id = patient_resp.json().get("id", 1) if patient_resp.status_code == 200 else 1
 
-            # 2. Get first doctor ID
+            # 2. Get doctors list and match doctor name dynamically
             docs_resp = await client.get(f"{backend_url}/doctors/")
-            docs = docs_resp.json()
-            doctor_id = docs[0]["id"] if docs else 1
+            doctor_id = 1
+            if docs_resp.status_code == 200:
+                docs = docs_resp.json()
+                clean_target = doctor_name.lower().replace("dr.", "").replace("dr", "").strip()
+                matched_doc = None
+                for doc in docs:
+                    clean_doc_name = doc["name"].lower().replace("dr.", "").replace("dr", "").strip()
+                    if clean_target in clean_doc_name or clean_doc_name in clean_target:
+                        matched_doc = doc
+                        break
+                
+                if matched_doc:
+                    doctor_id = matched_doc["id"]
+                    logger.info(f"Dynamically matched doctor '{doctor_name}' to ID {doctor_id}")
+                elif docs:
+                    doctor_id = docs[0]["id"]
+                    logger.info(f"Doctor '{doctor_name}' not found. Defaulting to first doctor ID {doctor_id}")
 
             # 3. Create appointment in backend DB
             appt_data = {
@@ -193,7 +267,7 @@ async def _log_voice_booking_and_notify(booking: dict, caller_phone: str):
                 "doctor_id": doctor_id,
                 "appointment_time": appointment_time,
                 "status": "Scheduled",
-                "notes": booking.get("reason", "Booked via AI Voice Agent")
+                "notes": booking.get("reason") or "Booked via AI Voice Agent"
             }
             await client.post(f"{backend_url}/appointments/", json=appt_data)
             logger.info("Appointment successfully saved to backend database.")
@@ -204,10 +278,10 @@ async def _log_voice_booking_and_notify(booking: dict, caller_phone: str):
     sms_payload = {
         "event": "appointment_reminder",
         "patient_name": patient_name,
-        "doctor": booking.get("doctor"),
+        "doctor": doctor_name,
         "department": booking.get("department"),
-        "appointment_date": booking.get("date"),
-        "appointment_time": booking.get("time"),
+        "appointment_date": date_str,
+        "appointment_time": time_str,
         "channel": "sms",
         "language": "en",
         "phone": caller_phone,

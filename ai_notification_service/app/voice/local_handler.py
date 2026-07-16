@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import json
@@ -150,19 +151,77 @@ async def _synthesize_eleven_labs(text: str) -> Optional[str]:
         logger.error(f"ElevenLabs connection error: {e}")
     return None
 
+def _parse_datetime_string(date_str: str, time_str: str) -> str:
+    """Parse relative natural language date and time strings into a standard ISO 8601 string."""
+    import datetime
+    now = datetime.datetime.now()
+    target_date = now.date()
+
+    if not date_str:
+        date_str = "today"
+    if not time_str:
+        time_str = "10:00 AM"
+
+    clean_date = date_str.lower().strip()
+    
+    # Simple relative date rules
+    if "tomorrow" in clean_date:
+        target_date = (now + datetime.timedelta(days=1)).date()
+    elif "day after tomorrow" in clean_date:
+        target_date = (now + datetime.timedelta(days=2)).date()
+    elif "today" in clean_date:
+        target_date = now.date()
+    else:
+        # Match "July 20", "20 July", "20th July", etc.
+        months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        found_month = None
+        for m in months:
+            if m in clean_date:
+                found_month = months.index(m) + 1
+                break
+        
+        day_match = re.search(r"\b(\d{1,2})\b", clean_date)
+        if day_match and found_month:
+            day = int(day_match.group(1))
+            year = now.year
+            try:
+                target_date = datetime.date(year, found_month, day)
+                if target_date < now.date():
+                    target_date = datetime.date(year + 1, found_month, day)
+            except ValueError:
+                pass
+
+    # Time parsing
+    clean_time = time_str.lower().strip()
+    hour = 10
+    minute = 0
+    
+    is_pm = "pm" in clean_time
+    time_digits = re.findall(r"\d+", clean_time)
+    
+    if len(time_digits) >= 2:
+        hour = int(time_digits[0])
+        minute = int(time_digits[1])
+    elif len(time_digits) == 1:
+        hour = int(time_digits[0])
+        minute = 0
+        
+    if is_pm and hour < 12:
+        hour += 12
+    elif not is_pm and hour == 12:
+        hour = 0
+        
+    final_dt = datetime.datetime.combine(target_date, datetime.time(hour, minute))
+    return final_dt.isoformat()
+
 async def _save_appointment_to_db(data: dict, phone: str):
     patient_name = data.get("patient_name") or "Local Caller"
     doctor_name = data.get("doctor") or "General Practitioner"
-    date_str = data.get("date") or "2026-07-20"
-    time_str = data.get("time") or "09:00 AM"
+    date_str = data.get("date") or "today"
+    time_str = data.get("time") or "10:00 AM"
 
-    # Default ISO date string format
-    appointment_time = f"{date_str} {time_str}"
-    try:
-        from datetime import datetime
-        appointment_time = datetime.now().isoformat()  # Mock parse
-    except Exception:
-        pass
+    # Use the helper to parse natural dates/times dynamically
+    appointment_time = _parse_datetime_string(date_str, time_str)
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -175,10 +234,26 @@ async def _save_appointment_to_db(data: dict, phone: str):
             p_res = await client.post(f"{BACKEND_URL}/patients/", json=patient_payload)
             patient_id = p_res.json().get("id", 1) if p_res.status_code == 200 else 1
 
-            # 2. Get first doctor ID
+            # 2. Get doctors list and match doctor name dynamically
             d_res = await client.get(f"{BACKEND_URL}/doctors/")
-            docs = d_res.json()
-            doctor_id = docs[0]["id"] if docs else 1
+            doctor_id = 1
+            if d_res.status_code == 200:
+                docs = d_res.json()
+                # Try finding a name match
+                clean_target = doctor_name.lower().replace("dr.", "").replace("dr", "").strip()
+                matched_doc = None
+                for doc in docs:
+                    clean_doc_name = doc["name"].lower().replace("dr.", "").replace("dr", "").strip()
+                    if clean_target in clean_doc_name or clean_doc_name in clean_target:
+                        matched_doc = doc
+                        break
+                
+                if matched_doc:
+                    doctor_id = matched_doc["id"]
+                    logger.info(f"Dynamically matched doctor '{doctor_name}' to ID {doctor_id}")
+                elif docs:
+                    doctor_id = docs[0]["id"]
+                    logger.info(f"Doctor '{doctor_name}' not found. Defaulting to first doctor ID {doctor_id}")
 
             # 3. Create appointment
             appt_payload = {
@@ -186,10 +261,10 @@ async def _save_appointment_to_db(data: dict, phone: str):
                 "doctor_id": doctor_id,
                 "appointment_time": appointment_time,
                 "status": "Scheduled",
-                "notes": data.get("reason") or "Booked via Local AI Receptionist"
+                "notes": data.get("reason") or "Booked via AI Voice Assistant"
             }
             await client.post(f"{BACKEND_URL}/appointments/", json=appt_payload)
-            logger.info("Local Voice simulation successfully saved appointment to SQLite database!")
+            logger.info("Local Voice successfully saved appointment to SQLite database!")
             
             # 4. Trigger Outbound confirmation SMS via AI Service
             sms_payload = {
@@ -203,7 +278,7 @@ async def _save_appointment_to_db(data: dict, phone: str):
             }
             await client.post("http://localhost:8001/api/v1/notify", json=sms_payload)
     except Exception as e:
-        logger.error(f"Failed to write local voice booking to database: {e}")
+        logger.error(f"Failed to write voice booking to database: {e}")
 
 
 @router.post("/chat/completions")
@@ -244,10 +319,12 @@ Be polite and wait for the user to answer.
         if not system_found:
             incoming_messages.insert(0, {"role": "system", "content": RECEPTIONIST_PROMPT})
 
+        should_stream = body.get("stream", False)
+
         ollama_payload = {
             "model": "llama3.2",
             "messages": incoming_messages,
-            "stream": False,
+            "stream": should_stream,
             "options": {
                 "temperature": body.get("temperature", 0.7)
             }
@@ -257,6 +334,50 @@ Be polite and wait for the user to answer.
         if "tools" in body:
             ollama_payload["tools"] = body["tools"]
             
+        if should_stream:
+            async def stream_generator():
+                try:
+                    async with httpx.AsyncClient(timeout=40) as client:
+                        async with client.stream("POST", OLLAMA_URL, json=ollama_payload) as response:
+                            if response.status_code != 200:
+                                logger.error("Failed to start Ollama stream")
+                                return
+                            
+                            async for line in response.aiter_lines():
+                                if not line.strip():
+                                    continue
+                                chunk_data = json.loads(line)
+                                content = chunk_data.get("message", {}).get("content", "")
+                                done = chunk_data.get("done", False)
+                                
+                                openai_chunk = {
+                                    "id": "chatcmpl-vapi-local",
+                                    "object": "chat.completion.chunk",
+                                    "created": 1677652288,
+                                    "model": "llama3.2",
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {
+                                                "content": content
+                                            },
+                                            "finish_reason": "stop" if done else None
+                                        }
+                                    ]
+                                }
+                                if "tool_calls" in chunk_data.get("message", {}):
+                                    openai_chunk["choices"][0]["delta"]["tool_calls"] = chunk_data["message"]["tool_calls"]
+                                    openai_chunk["choices"][0]["finish_reason"] = "tool_calls"
+                                    
+                                yield f"data: {json.dumps(openai_chunk)}\n\n"
+                            
+                            yield "data: [DONE]\n\n"
+                except Exception as e:
+                    logger.error(f"Error in Ollama stream: {e}")
+            
+            return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+        # Standard non-streaming completions route
         async with httpx.AsyncClient(timeout=40) as client:
             response = await client.post(OLLAMA_URL, json=ollama_payload)
             if response.status_code != 200:
@@ -265,7 +386,6 @@ Be polite and wait for the user to answer.
             result = response.json()
             message = result.get("message", {})
             
-            # Format as OpenAI Chat Completion expected by Vapi
             openai_response = {
                 "id": "chatcmpl-vapi-local",
                 "object": "chat.completion",

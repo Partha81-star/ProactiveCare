@@ -53,6 +53,20 @@ app.include_router(patient.router,             prefix="/api")
 app.include_router(appointment.router,         prefix="/api")
 app.include_router(notification_router.router, prefix="/api")
 
+# ── WebSocket Real-Time Dashboards ──────────────────────────────────
+from fastapi import WebSocket, WebSocketDisconnect
+from app.websocket import manager
+
+@app.websocket("/ws/appointments")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep client connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
 
 @app.get("/")
 def root():

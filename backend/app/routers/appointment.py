@@ -18,8 +18,12 @@ router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
 
 @router.post("/", response_model=AppointmentOut)
-def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get_db)):
-    return appointment_crud.create_appointment(db, appointment)
+async def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get_db)):
+    db_appt = appointment_crud.create_appointment(db, appointment)
+    # Notify React frontend client(s) to reload dynamically
+    from app.websocket import manager
+    await manager.broadcast({"event": "refresh_appointments"})
+    return db_appt
 
 
 @router.get("/", response_model=List[AppointmentOut])
@@ -48,17 +52,23 @@ def get_doctor_appointments(doctor_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{appointment_id}", response_model=AppointmentOut)
-def update_appointment(appointment_id: int, appointment: AppointmentUpdate, db: Session = Depends(get_db)):
+async def update_appointment(appointment_id: int, appointment: AppointmentUpdate, db: Session = Depends(get_db)):
     """Used for rescheduling, cancelling, or updating notes."""
     db_appointment = appointment_crud.update_appointment(db, appointment_id, appointment)
     if db_appointment is None:
         raise HTTPException(status_code=404, detail="Appointment not found")
+    # Notify React frontend to reload dynamically
+    from app.websocket import manager
+    await manager.broadcast({"event": "refresh_appointments"})
     return db_appointment
 
 
 @router.delete("/{appointment_id}")
-def delete_appointment(appointment_id: int, db: Session = Depends(get_db)):
+async def delete_appointment(appointment_id: int, db: Session = Depends(get_db)):
     db_appointment = appointment_crud.delete_appointment(db, appointment_id)
     if db_appointment is None:
         raise HTTPException(status_code=404, detail="Appointment not found")
+    # Notify React frontend to reload dynamically
+    from app.websocket import manager
+    await manager.broadcast({"event": "refresh_appointments"})
     return {"message": f"Appointment {appointment_id} deleted successfully"}
