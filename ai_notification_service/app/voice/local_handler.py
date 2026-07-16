@@ -218,12 +218,31 @@ async def custom_llm_chat_completions(request: Request):
         
         incoming_messages = body.get("messages", [])
         
-        # Re-inject System prompt to ensure local Llama behaves correctly as medical assistant
-        # check if system prompt is already there, if not insert it
-        has_system = any(msg.get("role") == "system" for msg in incoming_messages)
-        if not has_system:
-            # We want Vapi's own system prompt to take precedence, but if none is sent, use our default
-            pass
+        # Receptionist System Prompt
+        RECEPTIONIST_PROMPT = """You are MediConnect AI, a warm, professional hospital receptionist. 
+Your goal is to help the patient book an appointment.
+Keep your conversational responses extremely brief (1-2 sentences maximum).
+
+Ask for the following details one by one if they are missing:
+1. Patient's Full Name
+2. Preferred Doctor (e.g., Dr. Patel, Dr. Chen) or Department
+3. Date of the appointment
+4. Preferred Time slot
+
+Be polite and wait for the user to answer.
+"""
+
+        # Overwrite the default Vapi blank system message if present
+        system_found = False
+        for msg in incoming_messages:
+            if msg.get("role") == "system":
+                system_found = True
+                if "blank template" in msg.get("content", "").lower() or not msg.get("content", "").strip():
+                    msg["content"] = RECEPTIONIST_PROMPT
+                break
+                
+        if not system_found:
+            incoming_messages.insert(0, {"role": "system", "content": RECEPTIONIST_PROMPT})
 
         ollama_payload = {
             "model": "llama3.2",
