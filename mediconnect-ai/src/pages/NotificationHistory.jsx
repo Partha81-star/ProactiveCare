@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { getAllNotifications } from '../services/notificationService';
 import {
   RiBellLine, RiSearchLine, RiFilterLine, RiArrowDownSLine,
   RiMailLine, RiPhoneLine, RiMessage2Line, RiWhatsappLine,
@@ -36,28 +37,7 @@ const initials = (name) => name.split(' ').map(w => w[0]).join('').slice(0, 2);
 
 const gen = (id, patient, type, channel, date, status) => ({ id: `NID-${id}`, patient, type, channel, date, status });
 
-const MOCK_NOTIFICATIONS = [
-  gen(3001, 'Sarah Johnson',    'Appointment Reminder', 'SMS',        '2025-07-13 09:00', 'Delivered'),
-  gen(3002, 'Mark Thompson',    'Lab Results Ready',    'Email',      '2025-07-13 09:15', 'Delivered'),
-  gen(3003, 'Priya Nair',       'Prescription Alert',   'WhatsApp',   '2025-07-13 10:00', 'Pending'),
-  gen(3004, 'Alex Rodriguez',   'Emergency Alert',      'Phone Call', '2025-07-13 10:30', 'Delivered'),
-  gen(3005, 'Nina Shah',        'Appointment Reminder', 'SMS',        '2025-07-13 11:00', 'Failed'),
-  gen(3006, 'Robert Kim',       'Health Tip',           'Email',      '2025-07-13 11:30', 'Delivered'),
-  gen(3007, 'Fatima Al-Hassan', 'Follow-up Reminder',   'WhatsApp',   '2025-07-13 12:00', 'Delivered'),
-  gen(3008, 'Vikram Singh',     'Discharge Notice',     'SMS',        '2025-07-13 13:00', 'Failed'),
-  gen(3009, 'Lucy Chen',        'Lab Results Ready',    'Email',      '2025-07-13 13:30', 'Delivered'),
-  gen(3010, 'John Doe',         'Appointment Reminder', 'SMS',        '2025-07-13 14:00', 'Pending'),
-  gen(3011, 'Sarah Johnson',    'Prescription Alert',   'WhatsApp',   '2025-07-13 14:30', 'Delivered'),
-  gen(3012, 'Mark Thompson',    'Health Tip',           'Email',      '2025-07-13 15:00', 'Delivered'),
-  gen(3013, 'Priya Nair',       'Emergency Alert',      'Phone Call', '2025-07-13 15:30', 'Failed'),
-  gen(3014, 'Robert Kim',       'Appointment Reminder', 'SMS',        '2025-07-13 16:00', 'Pending'),
-  gen(3015, 'Vikram Singh',     'Follow-up Reminder',   'Email',      '2025-07-13 16:30', 'Delivered'),
-  gen(3016, 'Lucy Chen',        'Discharge Notice',     'WhatsApp',   '2025-07-14 09:00', 'Delivered'),
-  gen(3017, 'Alex Rodriguez',   'Lab Results Ready',    'SMS',        '2025-07-14 09:30', 'Pending'),
-  gen(3018, 'Nina Shah',        'Health Tip',           'Email',      '2025-07-14 10:00', 'Delivered'),
-  gen(3019, 'John Doe',         'Prescription Alert',   'WhatsApp',   '2025-07-14 10:30', 'Delivered'),
-  gen(3020, 'Fatima Al-Hassan', 'Emergency Alert',      'Phone Call', '2025-07-14 11:00', 'Failed'),
-];
+
 
 const StatCard = ({ label, value, sublabel, color, Icon }) => (
   <div className="bg-white border border-slate-200 rounded-lg p-4 flex items-center gap-4 shadow-xs">
@@ -84,7 +64,7 @@ const FilterSelect = ({ icon: Icon, value, onChange, children }) => (
 );
 
 const NotificationHistory = () => {
-  const [data] = useState(MOCK_NOTIFICATIONS);
+  const [data, setData] = useState([]);
   const [search, setSearch] = useState('');
   const [typeF, setTypeF] = useState('All');
   const [channelF, setChannelF] = useState('All');
@@ -94,10 +74,36 @@ const NotificationHistory = () => {
   const [resent, setResent] = useState(null);
   const PER_PAGE = 10;
 
+  const fetchNotifications = async () => {
+    try {
+      const res = await getAllNotifications();
+      const mapped = (res.notifications || res || []).map(n => ({
+        id: `NID-${n.id}`,
+        patient: n.patient?.name || 'Local Caller',
+        type: n.type === 'appointment_reminder' ? 'Appointment Reminder' :
+              n.type === 'lab_results' ? 'Lab Results Ready' :
+              n.type === 'prescription_alert' ? 'Prescription Alert' :
+              n.type === 'emergency_alert' ? 'Emergency Alert' :
+              n.type === 'health_tip' ? 'Health Tip' :
+              n.type === 'follow_up' ? 'Follow-up Reminder' : 'Discharge Notice',
+        channel: n.channel || 'SMS',
+        date: n.scheduled_at ? n.scheduled_at.replace('T', ' ').slice(0, 16) : new Date().toISOString().replace('T', ' ').slice(0, 16),
+        status: n.status || 'Delivered'
+      }));
+      setData(mapped);
+    } catch (e) {
+      console.error("Failed to load notifications list", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
   const delivered = data.filter(n => n.status === 'Delivered').length;
   const pending = data.filter(n => n.status === 'Pending').length;
   const failed = data.filter(n => n.status === 'Failed').length;
-  const rate = Math.round((delivered / data.length) * 100);
+  const rate = data.length > 0 ? Math.round((delivered / data.length) * 100) : 100;
 
   const filtered = useMemo(() => data.filter(n =>
     (!search || n.patient.toLowerCase().includes(search.toLowerCase()) || n.type.toLowerCase().includes(search.toLowerCase())) &&
