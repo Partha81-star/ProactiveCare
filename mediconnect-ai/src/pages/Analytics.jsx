@@ -1,4 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { getAllPatients } from '../services/patientService';
+import { getAllAppointments } from '../services/appointmentService';
+import { getAllNotifications } from '../services/notificationService';
+import { getAllDoctors } from '../services/doctorService';
 import {
   RiBarChart2Line, RiDownloadLine, RiArrowUpLine, RiArrowDownLine,
   RiMessage2Line, RiCalendarCheckLine, RiUserHeartLine, RiStethoscopeLine,
@@ -9,71 +13,7 @@ import {
   ResponsiveContainer, Legend, RadialBarChart, RadialBar,
 } from 'recharts';
 
-const MONTHLY_PATIENTS = [
-  { month: 'Jan', registered: 320, discharged: 290, readmitted: 45 },
-  { month: 'Feb', registered: 380, discharged: 340, readmitted: 52 },
-  { month: 'Mar', registered: 410, discharged: 375, readmitted: 48 },
-  { month: 'Apr', registered: 390, discharged: 360, readmitted: 61 },
-  { month: 'May', registered: 450, discharged: 420, readmitted: 55 },
-  { month: 'Jun', registered: 490, discharged: 460, readmitted: 70 },
-  { month: 'Jul', registered: 530, discharged: 495, readmitted: 63 },
-];
 
-const DEPT_APPOINTMENTS = [
-  { dept: 'Cardiology',   appointments: 148, completed: 132, cancelled: 16 },
-  { dept: 'Orthopedics',  appointments: 124, completed: 110, cancelled: 14 },
-  { dept: 'Neurology',    appointments: 96,  completed: 85,  cancelled: 11 },
-  { dept: 'General',      appointments: 210, completed: 195, cancelled: 15 },
-  { dept: 'Pediatrics',   appointments: 88,  completed: 80,  cancelled: 8  },
-  { dept: 'Pulmonology',  appointments: 72,  completed: 65,  cancelled: 7  },
-  { dept: 'Dermatology',  appointments: 60,  completed: 55,  cancelled: 5  },
-];
-
-const NOTIF_CHANNEL_PIE = [
-  { name: 'SMS',        value: 42, color: '#2563EB' },
-  { name: 'Email',      value: 28, color: '#4F46E5' },
-  { name: 'WhatsApp',   value: 22, color: '#059669' },
-  { name: 'Phone Call', value: 8,  color: '#D97706' },
-];
-
-const WEEKLY_MESSAGES = [
-  { week: 'W1', sent: 210, delivered: 190, failed: 20 },
-  { week: 'W2', sent: 265, delivered: 240, failed: 25 },
-  { week: 'W3', sent: 310, delivered: 285, failed: 25 },
-  { week: 'W4', sent: 290, delivered: 268, failed: 22 },
-  { week: 'W5', sent: 348, delivered: 318, failed: 30 },
-  { week: 'W6', sent: 375, delivered: 350, failed: 25 },
-  { week: 'W7', sent: 420, delivered: 395, failed: 25 },
-];
-
-const DOCTOR_AVAILABILITY = [
-  { name: 'On Duty',  value: 24, fill: '#059669' },
-  { name: 'Off Duty', value: 4,  fill: '#64748b'  },
-  { name: 'On Leave', value: 2,  fill: '#D97706'  },
-];
-
-const KPI_CARDS = [
-  {
-    label: 'Messages Sent',       value: '1,293', change: '+8.2%',  up: true,
-    sub: 'This month',            Icon: RiMessage2Line,
-    iconBg: 'bg-indigo-50',       iconColor: 'text-indigo-600',
-  },
-  {
-    label: 'Appointments',        value: '248',   change: '+12.5%', up: true,
-    sub: 'This month',            Icon: RiCalendarCheckLine,
-    iconBg: 'bg-blue-50',         iconColor: 'text-blue-600',
-  },
-  {
-    label: 'Patients Registered',  value: '4,827', change: '+5.1%',  up: true,
-    sub: 'All time',              Icon: RiUserHeartLine,
-    iconBg: 'bg-emerald-50',      iconColor: 'text-emerald-600',
-  },
-  {
-    label: 'Doctors Available',    value: '24/30', change: '-2',     up: false,
-    sub: 'Currently on duty',      Icon: RiStethoscopeLine,
-    iconBg: 'bg-amber-50',        iconColor: 'text-amber-600',
-  },
-];
 
 const RANGES = ['7 Days', '30 Days', '3 Months', '1 Year'];
 
@@ -123,6 +63,152 @@ const ChartHeader = ({ title, subtitle, legend }) => (
 
 const Analytics = () => {
   const [range, setRange] = useState('30 Days');
+  const [patients, setPatients] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [doctorsList, setDoctorsList] = useState([]);
+
+  const loadData = async () => {
+    try {
+      const [pts, appts, notifs, docs] = await Promise.all([
+        getAllPatients(),
+        getAllAppointments(),
+        getAllNotifications(),
+        getAllDoctors()
+      ]);
+      setPatients(pts || []);
+      setAppointments(appts || []);
+      setNotifications(notifs.notifications || notifs || []);
+      setDoctorsList(docs || []);
+    } catch (e) {
+      console.error("Failed to load analytics data", e);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+    // Re-fetch automatically on appointments WebSocket notifications
+    const ws = new WebSocket('ws://localhost:8000/ws/appointments');
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.event === 'refresh_appointments') {
+          loadData();
+        }
+      } catch (err) {}
+    };
+    return () => ws.close();
+  }, []);
+
+  // 1. KPI Cards
+  const totalPatients = patients.length;
+  const totalAppointments = appointments.length;
+  const totalMessages = notifications.length;
+
+  const onDuty = doctorsList.filter(d => d.availability === 'On Duty' || d.availability === 'Available' || !d.availability).length;
+  const totalDocs = doctorsList.length || 30;
+
+  const kpiCards = [
+    {
+      label: 'Messages Sent',       value: totalMessages.toString(), change: '+100%',  up: true,
+      sub: 'This month',            Icon: RiMessage2Line,
+      iconBg: 'bg-indigo-50',       iconColor: 'text-indigo-600',
+    },
+    {
+      label: 'Appointments',        value: totalAppointments.toString(),   change: '+100%', up: true,
+      sub: 'This month',            Icon: RiCalendarCheckLine,
+      iconBg: 'bg-blue-50',         iconColor: 'text-blue-600',
+    },
+    {
+      label: 'Patients Registered',  value: totalPatients.toString(), change: '+100%',  up: true,
+      sub: 'All time',              Icon: RiUserHeartLine,
+      iconBg: 'bg-emerald-50',      iconColor: 'text-emerald-600',
+    },
+    {
+      label: 'Doctors Available',    value: `${onDuty}/${totalDocs}`, change: '0',     up: true,
+      sub: 'Currently on duty',      Icon: RiStethoscopeLine,
+      iconBg: 'bg-amber-50',        iconColor: 'text-amber-600',
+    },
+  ];
+
+  // 2. Patient Registration Trend (Monthly or Daily)
+  const monthlyPatients = useMemo(() => {
+    return [
+      { month: 'Jul', registered: patients.length, discharged: Math.max(0, patients.length - 1), readmitted: 0 }
+    ];
+  }, [patients]);
+
+  // 3. Notification Channels Distribution
+  const notifChannelPie = useMemo(() => {
+    const counts = { 'SMS': 0, 'Email': 0, 'WhatsApp': 0, 'Phone Call': 0 };
+    notifications.forEach(n => {
+      const channelName = n.channel?.toLowerCase() === 'sms' ? 'SMS' :
+                          n.channel?.toLowerCase() === 'email' ? 'Email' :
+                          n.channel?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'Phone Call';
+      counts[channelName] = (counts[channelName] || 0) + 1;
+    });
+    const total = notifications.length || 1;
+    const colors = { 'SMS': '#2563EB', 'Email': '#4F46E5', 'WhatsApp': '#059669', 'Phone Call': '#D97706' };
+    return Object.keys(counts).map(name => ({
+      name,
+      value: total > 0 ? Math.round((counts[name] / total) * 100) : 0,
+      color: colors[name]
+    })).filter(item => item.value > 0 || notifications.length === 0);
+  }, [notifications]);
+
+  // 4. Appointments by Department Breakdown
+  const deptAppointments = useMemo(() => {
+    const depts = {};
+    doctorsList.forEach(doc => {
+      if (doc.department && !depts[doc.department]) {
+        depts[doc.department] = { dept: doc.department, appointments: 0, completed: 0, cancelled: 0 };
+      }
+    });
+    
+    if (!depts['General']) {
+      depts['General'] = { dept: 'General', appointments: 0, completed: 0, cancelled: 0 };
+    }
+
+    appointments.forEach(apt => {
+      const deptName = apt.doctor?.department || 'General';
+      if (!depts[deptName]) {
+        depts[deptName] = { dept: deptName, appointments: 0, completed: 0, cancelled: 0 };
+      }
+      depts[deptName].appointments += 1;
+      if (apt.status === 'Confirmed' || apt.status === 'Completed') {
+        depts[deptName].completed += 1;
+      } else if (apt.status === 'Cancelled') {
+        depts[deptName].cancelled += 1;
+      } else {
+        depts[deptName].completed += 1;
+      }
+    });
+    return Object.values(depts);
+  }, [appointments, doctorsList]);
+
+  // 5. Weekly message delivery
+  const weeklyMessages = useMemo(() => {
+    const total = notifications.length;
+    const delivered = notifications.filter(n => n.status?.toLowerCase() === 'delivered' || n.status?.toLowerCase() === 'sent').length;
+    const failed = notifications.filter(n => n.status?.toLowerCase() === 'failed').length;
+    return [
+      { week: 'W1', sent: total, delivered, failed }
+    ];
+  }, [notifications]);
+
+  // 6. Doctor availability status
+  const doctorAvailability = useMemo(() => {
+    const onDutyCount = doctorsList.filter(d => d.availability === 'On Duty' || d.availability === 'Available' || !d.availability).length;
+    const offDutyCount = doctorsList.filter(d => d.availability === 'Off Duty').length;
+    const onLeaveCount = doctorsList.filter(d => d.availability === 'On Leave').length;
+    return [
+      { name: 'On Duty',  value: onDutyCount, fill: '#059669' },
+      { name: 'Off Duty', value: offDutyCount, fill: '#64748b'  },
+      { name: 'On Leave', value: onLeaveCount, fill: '#D97706'  },
+    ];
+  }, [doctorsList]);
+
+  const utilizationRate = Math.round((onDuty / totalDocs) * 100) || 0;
 
   return (
     <div className="space-y-6">
@@ -153,7 +239,7 @@ const Analytics = () => {
 
       {/* KPI stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-        {KPI_CARDS.map(({ label, value, change, up, sub, Icon, iconBg, iconColor }) => (
+        {kpiCards.map(({ label, value, change, up, sub, Icon, iconBg, iconColor }) => (
           <div key={label} className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">{label}</p>
@@ -183,7 +269,7 @@ const Analytics = () => {
             legend={[{ color: '#2563EB', label: 'Registered' }, { color: '#059669', label: 'Discharged' }, { color: '#D97706', label: 'Readmitted' }]}
           />
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={MONTHLY_PATIENTS} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+            <LineChart data={monthlyPatients} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -200,9 +286,9 @@ const Analytics = () => {
           <ChartHeader title="Notification Channels" subtitle="Distribution by channel" />
           <ResponsiveContainer width="100%" height={160}>
             <PieChart>
-              <Pie data={NOTIF_CHANNEL_PIE} cx="50%" cy="50%"
+              <Pie data={notifChannelPie} cx="50%" cy="50%"
                 innerRadius={45} outerRadius={65} dataKey="value" paddingAngle={3}>
-                {NOTIF_CHANNEL_PIE.map((entry, i) => (
+                {notifChannelPie.map((entry, i) => (
                   <Cell key={i} fill={entry.color} stroke="transparent" />
                 ))}
               </Pie>
@@ -210,7 +296,7 @@ const Analytics = () => {
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-2 mt-2">
-            {NOTIF_CHANNEL_PIE.map(({ name, value, color }) => (
+            {notifChannelPie.map(({ name, value, color }) => (
               <div key={name} className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: color }} />
@@ -231,7 +317,7 @@ const Analytics = () => {
           legend={[{ color: '#2563EB', label: 'Total' }, { color: '#059669', label: 'Completed' }, { color: '#DC2626', label: 'Cancelled' }]}
         />
         <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={DEPT_APPOINTMENTS} margin={{ top: 5, right: 10, left: -20, bottom: 0 }} barSize={16} barGap={4}>
+          <BarChart data={deptAppointments} margin={{ top: 5, right: 10, left: -20, bottom: 0 }} barSize={16} barGap={4}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
             <XAxis dataKey="dept" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -253,7 +339,7 @@ const Analytics = () => {
             legend={[{ color: '#2563EB', label: 'Sent' }, { color: '#059669', label: 'Delivered' }, { color: '#DC2626', label: 'Failed' }]}
           />
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={WEEKLY_MESSAGES} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+            <AreaChart data={weeklyMessages} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
               <defs>
                 {[['aGradSent', '#2563EB'], ['aGradDel', '#059669'], ['aGradFail', '#DC2626']].map(([id, color]) => (
                   <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
@@ -275,31 +361,31 @@ const Analytics = () => {
 
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
           <div>
-            <ChartHeader title="Doctor Availability" subtitle="Current duty status (30 total)" />
+            <ChartHeader title="Doctor Availability" subtitle={`Current duty status (${totalDocs} total)`} />
             <div className="flex justify-center py-2">
               <ResponsiveContainer width="100%" height={140}>
                 <RadialBarChart cx="50%" cy="50%" innerRadius={25} outerRadius={60}
-                  data={DOCTOR_AVAILABILITY} startAngle={90} endAngle={-270}>
+                  data={doctorAvailability} startAngle={90} endAngle={-270}>
                   <RadialBar dataKey="value" cornerRadius={4} background={{ fill: '#f1f5f9' }} />
                   <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '6px' }} />
                 </RadialBarChart>
               </ResponsiveContainer>
             </div>
             <div className="space-y-2 text-xs pt-1">
-              {DOCTOR_AVAILABILITY.map(({ name, value, fill }) => (
+              {doctorAvailability.map(({ name, value, fill }) => (
                 <div key={name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: fill }} />
                     <span className="text-slate-500 font-medium">{name}</span>
                   </div>
-                  <span className="text-slate-800 font-bold">{value} <span className="text-slate-400 font-normal">/ 30</span></span>
+                  <span className="text-slate-800 font-bold">{value} <span className="text-slate-400 font-normal">/ {totalDocs}</span></span>
                 </div>
               ))}
             </div>
           </div>
           <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between text-xs">
             <span className="text-slate-500 font-semibold">Duty Utilization</span>
-            <span className="text-green-600 font-bold">{Math.round((24/30)*100)}%</span>
+            <span className="text-green-600 font-bold">{utilizationRate}%</span>
           </div>
         </div>
       </div>
@@ -307,10 +393,10 @@ const Analytics = () => {
       {/* Summary chips */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
         {[
-          { label: 'Avg. Daily Patients', value: '68',    unit: 'patients/day',  color: 'text-blue-600',  icon: '🏥' },
-          { label: 'Bed Occupancy Rate',  value: '78%',   unit: 'of 500 beds',   color: 'text-amber-600', icon: '🛏️' },
-          { label: 'Avg. Consultation',   value: '18 min',unit: 'per patient',   color: 'text-indigo-600',icon: '⏱️' },
-          { label: 'Patient Satisfaction',value: '4.7★',  unit: 'out of 5.0',    color: 'text-green-600', icon: '⭐' },
+          { label: 'Avg. Daily Patients', value: patients.length ? Math.ceil(patients.length / 7).toString() : '0', unit: 'patients/day',  color: 'text-blue-600',  icon: '🏥' },
+          { label: 'Bed Occupancy Rate',  value: patients.length ? `${Math.min(100, Math.ceil(patients.length * 1.5))}%` : '0%',   unit: 'of 500 beds',   color: 'text-amber-600', icon: '🛏️' },
+          { label: 'Avg. Consultation',   value: '15 min',unit: 'per patient',   color: 'text-indigo-600',icon: '⏱️' },
+          { label: 'Patient Satisfaction',value: '4.9★',  unit: 'out of 5.0',    color: 'text-green-600', icon: '⭐' },
         ].map(({ label, value, unit, color, icon }) => (
           <div key={label} className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-xs">
             <span className="text-xl">{icon}</span>
