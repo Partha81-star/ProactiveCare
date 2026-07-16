@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
-import { getAllAppointments } from '../services/appointmentService';
+import { getAllAppointments, bookAppointment } from '../services/appointmentService';
+import { registerPatient } from '../services/patientService';
+import { getAllDoctors } from '../services/doctorService';
 import {
   RiCalendarCheckLine, RiUserHeartLine, RiStethoscopeLine,
   RiHospitalLine, RiCalendarLine, RiTimeLine, RiFileTextLine,
@@ -9,26 +11,6 @@ import {
   RiPhoneFill, RiPhoneLine, RiVolumeUpLine, RiMicFill, RiVolumeMuteLine
 } from 'react-icons/ri';
 
-const PATIENTS = [
-  'John Doe', 'Sarah Johnson', 'Mark Thompson', 'Priya Nair',
-  'Alex Rodriguez', 'Nina Shah', 'Robert Kim', 'Fatima Al-Hassan',
-  'Vikram Singh', 'Lucy Chen',
-];
-
-const DOCTORS_BY_DEPT = {
-  Cardiology:    ['Dr. Emily Chen'],
-  Orthopedics:   ['Dr. Raj Patel'],
-  Neurology:     ['Dr. Lisa Wong'],
-  General:       ['Dr. James Miller'],
-  Pediatrics:    ['Dr. Sofia Alvarez'],
-  Pulmonology:   ['Dr. Ahmed Hassan'],
-  Dermatology:   ['Dr. Priya Sharma'],
-  Psychiatry:    ['Dr. Kevin Obi'],
-  Endocrinology: ['Dr. Sara Iyer'],
-  Radiology:     ['Dr. Tom Bradley'],
-};
-
-const DEPARTMENTS = Object.keys(DOCTORS_BY_DEPT);
 const TIME_SLOTS = ['09:00 AM','09:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM',
                      '12:00 PM','02:00 PM','02:30 PM','03:00 PM','03:30 PM','04:00 PM','04:30 PM'];
 
@@ -53,18 +35,7 @@ const PRIORITY_BADGE = {
   Critical: 'bg-red-50 text-red-700 border-red-200',
 };
 
-const MOCK_APPOINTMENTS = [
-  { id: 'APT-1001', patient: 'Sarah Johnson',   doctor: 'Dr. Emily Chen',   dept: 'Cardiology',   date: '2025-07-14', time: '09:00 AM', reason: 'Chest pain follow-up',        priority: 'High',     status: 'Confirmed'  },
-  { id: 'APT-1002', patient: 'Mark Thompson',   doctor: 'Dr. Raj Patel',    dept: 'Orthopedics',  date: '2025-07-14', time: '10:30 AM', reason: 'Knee replacement consultation', priority: 'Medium',   status: 'Confirmed'  },
-  { id: 'APT-1003', patient: 'Priya Nair',      doctor: 'Dr. Lisa Wong',    dept: 'Neurology',    date: '2025-07-14', time: '11:00 AM', reason: 'Recurring migraines',          priority: 'Medium',   status: 'Pending'    },
-  { id: 'APT-1004', patient: 'Alex Rodriguez',  doctor: 'Dr. James Miller', dept: 'General',      date: '2025-07-15', time: '02:00 PM', reason: 'Annual health checkup',        priority: 'Low',      status: 'Confirmed'  },
-  { id: 'APT-1005', patient: 'Nina Shah',       doctor: 'Dr. Sofia Alvarez',dept: 'Pediatrics',   date: '2025-07-15', time: '03:30 PM', reason: 'Vaccination schedule',         priority: 'Low',      status: 'Pending'    },
-  { id: 'APT-1006', patient: 'Robert Kim',      doctor: 'Dr. Ahmed Hassan', dept: 'Pulmonology',  date: '2025-07-15', time: '04:00 PM', reason: 'Breathing difficulty',         priority: 'High',     status: 'Confirmed'  },
-  { id: 'APT-1007', patient: 'Fatima Al-Hassan',doctor: 'Dr. Emily Chen',   dept: 'Cardiology',   date: '2025-07-16', time: '09:30 AM', reason: 'ECG review',                   priority: 'Critical', status: 'Confirmed'  },
-  { id: 'APT-1008', patient: 'Vikram Singh',    doctor: 'Dr. Priya Sharma', dept: 'Dermatology',  date: '2025-07-16', time: '11:30 AM', reason: 'Skin allergy evaluation',      priority: 'Low',      status: 'Cancelled'  },
-];
-
-const EMPTY = { patient: '', dept: '', doctor: '', date: '', time: '', reason: '', priority: 'Medium' };
+const EMPTY = { name: '', email: '', phone: '', dept: '', doctor: '', date: '', time: '', reason: '', priority: 'Medium' };
 
 const inputCls = `w-full bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2 text-sm text-slate-800
   placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-all`;
@@ -249,6 +220,7 @@ const AppointmentBooking = () => {
     setTimeout(() => setShowVoiceCall(false), 800);
   };
   const [appointments, setAppointments] = useState([]);
+  const [doctorsList, setDoctorsList] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [toast, setToast] = useState(null);
@@ -298,9 +270,20 @@ const AppointmentBooking = () => {
     }
   };
 
-  // Set up real-time websocket and pull initial list
+  // Fetch doctors from API
+  const fetchDoctors = async () => {
+    try {
+      const data = await getAllDoctors();
+      setDoctorsList(data);
+    } catch (e) {
+      console.error("Failed to load doctors list:", e);
+    }
+  };
+
+  // Set up real-time websocket and pull initial lists
   useEffect(() => {
     fetchAppointments();
+    fetchDoctors();
 
     const socketUrl = 'ws://localhost:8000/ws/appointments';
     let socket = new WebSocket(socketUrl);
@@ -329,6 +312,15 @@ const AppointmentBooking = () => {
     };
   }, []);
 
+  // Compute departments and filter doctors dynamically from the database
+  const departments = useMemo(() => {
+    return [...new Set(doctorsList.map(d => d.department))];
+  }, [doctorsList]);
+
+  const filteredDoctors = useMemo(() => {
+    return doctorsList.filter(d => !form.dept || d.department === form.dept);
+  }, [doctorsList, form.dept]);
+
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
   const setDirect = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -336,28 +328,82 @@ const AppointmentBooking = () => {
 
   const handleDeptChange = (e) => {
     const d = e.target.value;
-    const doctor = DOCTORS_BY_DEPT[d]?.[0] || '';
-    setForm(f => ({ ...f, dept: d, doctor }));
+    const firstDocOfDept = doctorsList.find(doc => doc.department === d)?.name || '';
+    setForm(f => ({ ...f, dept: d, doctor: firstDocOfDept }));
   };
 
-  const handleBook = (e) => {
+  const handleBook = async (e) => {
     e.preventDefault();
-    const req = ['patient', 'dept', 'doctor', 'date', 'time', 'priority'];
+    const req = ['name', 'email', 'phone', 'dept', 'doctor', 'date', 'time', 'priority'];
     if (req.some(k => !form[k])) { showToast('error', 'Please fill in all required fields.'); return; }
-    const newApt = {
-      id: `APT-${1001 + appointments.length}`,
-      ...form,
-      status: 'Pending',
-    };
-    setAppointments(a => [newApt, ...a]);
-    showToast('success', `Appointment successfully scheduled for ${form.patient}.`);
-    setForm(EMPTY);
+    
+    try {
+      // 1. Register new patient dynamically
+      const patientPayload = {
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        preferred_language: 'English',
+        medical_history: form.reason || 'Self-registered via Web Portal'
+      };
+      const patient = await registerPatient(patientPayload);
+      const patientId = patient.id;
+
+      // 2. Map date + time to ISO format
+      const slotMap = {
+        '09:00 AM': '09:00:00',
+        '09:30 AM': '09:30:00',
+        '10:00 AM': '10:00:00',
+        '10:30 AM': '10:30:00',
+        '11:00 AM': '11:00:00',
+        '11:30 AM': '11:30:00',
+        '12:00 PM': '12:00:00',
+        '02:00 PM': '14:00:00',
+        '02:30 PM': '14:30:00',
+        '03:00 PM': '15:00:00',
+        '03:30 PM': '15:30:00',
+        '04:00 PM': '16:00:00',
+        '04:30 PM': '16:30:00'
+      };
+      const timeVal = slotMap[form.time] || '10:00:00';
+      const isoTime = `${form.date}T${timeVal}`;
+
+      // 3. Match doctor ID
+      const matchedDoctor = doctorsList.find(d => d.name === form.doctor);
+      const doctorId = matchedDoctor ? matchedDoctor.id : 1;
+
+      // 4. Create appointment payload
+      const apptPayload = {
+        patient_id: patientId,
+        doctor_id: doctorId,
+        appointment_time: isoTime,
+        status: 'Scheduled',
+        notes: form.reason || 'Self-registered via Web Portal'
+      };
+      
+      await bookAppointment(apptPayload);
+      showToast('success', `Appointment successfully scheduled for ${form.name}.`);
+      setForm(EMPTY);
+      
+      // Fetch latest list
+      fetchAppointments();
+    } catch (err) {
+      console.error("Booking error:", err);
+      showToast('error', err.message || 'Failed to schedule appointment.');
+    }
   };
 
-  const handleCancel = (id) => {
-    setAppointments(a => a.map(apt => apt.id === id ? { ...apt, status: 'Cancelled' } : apt));
-    showToast('success', `Appointment ${id} has been marked as cancelled.`);
-    setCancelTarget(null);
+  const handleCancel = async (id) => {
+    try {
+      const dbId = parseInt(id.replace('APT-', ''));
+      await updateAppointment(dbId, { status: 'Cancelled' });
+      showToast('success', `Appointment ${id} has been marked as cancelled.`);
+      setCancelTarget(null);
+      fetchAppointments();
+    } catch (err) {
+      console.error("Failed to cancel appointment:", err);
+      showToast('error', 'Failed to cancel appointment.');
+    }
   };
 
   const filtered = useMemo(() =>
@@ -414,35 +460,43 @@ const AppointmentBooking = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="flex flex-col gap-1">
               <FieldLabel required>Patient Name</FieldLabel>
-              <IconSelect icon={RiUserHeartLine} value={form.patient} onChange={set('patient')}>
-                <option value="">Select patient</option>
-                {PATIENTS.map(p => <option key={p}>{p}</option>)}
-              </IconSelect>
+              <IconInput icon={RiUserHeartLine} type="text" placeholder="Enter patient name" value={form.name} onChange={set('name')} />
             </div>
+            <div className="flex flex-col gap-1">
+              <FieldLabel required>Patient Email</FieldLabel>
+              <IconInput icon={RiUserHeartLine} type="email" placeholder="Enter patient email" value={form.email} onChange={set('email')} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <FieldLabel required>Patient Phone</FieldLabel>
+              <IconInput icon={RiUserHeartLine} type="tel" placeholder="Enter phone (e.g. +91...)" value={form.phone} onChange={set('phone')} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="flex flex-col gap-1">
               <FieldLabel required>Clinical Department</FieldLabel>
               <IconSelect icon={RiHospitalLine} value={form.dept} onChange={handleDeptChange}>
                 <option value="">Select department</option>
-                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                {departments.map(d => <option key={d}>{d}</option>)}
               </IconSelect>
             </div>
             <div className="flex flex-col gap-1">
               <FieldLabel required>Assigned Practitioner</FieldLabel>
               <IconSelect icon={RiStethoscopeLine} value={form.doctor} onChange={set('doctor')}>
                 <option value="">Select doctor</option>
-                {(form.dept ? DOCTORS_BY_DEPT[form.dept] : Object.values(DOCTORS_BY_DEPT).flat()).map(d => (
-                  <option key={d}>{d}</option>
+                {filteredDoctors.map(d => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
                 ))}
               </IconSelect>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1">
               <FieldLabel required>Appointment Date</FieldLabel>
               <IconInput icon={RiCalendarLine} type="date" value={form.date} onChange={set('date')}
                 min={new Date().toISOString().split('T')[0]} />
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1">
               <FieldLabel required>Preferred Time Slot</FieldLabel>
               <IconSelect icon={RiTimeLine} value={form.time} onChange={set('time')}>
