@@ -1,23 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { getAllDoctors, addDoctor, updateDoctor, deleteDoctor } from '../services/doctorService';
 import {
   RiStethoscopeLine, RiUserAddLine, RiSearchLine, RiEditLine,
   RiDeleteBinLine, RiCloseLine, RiSaveLine, RiPhoneLine,
   RiMailLine, RiHospitalLine, RiArrowDownSLine, RiFilterLine,
   RiCheckboxCircleLine, RiErrorWarningLine,
 } from 'react-icons/ri';
-
-const INITIAL_DOCTORS = [
-  { id: 1,  name: 'Dr. Emily Chen',     spec: 'Cardiologist',        dept: 'Cardiology',     phone: '+91 98001 11001', email: 'e.chen@mediconnect.ai',     avail: 'On Duty'  },
-  { id: 2,  name: 'Dr. Raj Patel',      spec: 'Orthopedic Surgeon',  dept: 'Orthopedics',    phone: '+91 98001 11002', email: 'r.patel@mediconnect.ai',    avail: 'On Duty'  },
-  { id: 3,  name: 'Dr. Lisa Wong',      spec: 'Neurologist',         dept: 'Neurology',      phone: '+91 98001 11003', email: 'l.wong@mediconnect.ai',     avail: 'On Leave' },
-  { id: 4,  name: 'Dr. James Miller',   spec: 'General Physician',   dept: 'General',        phone: '+91 98001 11004', email: 'j.miller@mediconnect.ai',   avail: 'On Duty'  },
-  { id: 5,  name: 'Dr. Sofia Alvarez',  spec: 'Pediatrician',        dept: 'Pediatrics',     phone: '+91 98001 11005', email: 's.alvarez@mediconnect.ai',  avail: 'Off Duty' },
-  { id: 6,  name: 'Dr. Ahmed Hassan',   spec: 'Pulmonologist',       dept: 'Pulmonology',    phone: '+91 98001 11006', email: 'a.hassan@mediconnect.ai',   avail: 'On Duty'  },
-  { id: 7,  name: 'Dr. Priya Sharma',   spec: 'Dermatologist',       dept: 'Dermatology',    phone: '+91 98001 11007', email: 'p.sharma@mediconnect.ai',   avail: 'On Duty'  },
-  { id: 8,  name: 'Dr. Kevin Obi',      spec: 'Psychiatrist',        dept: 'Psychiatry',     phone: '+91 98001 11008', email: 'k.obi@mediconnect.ai',      avail: 'Off Duty' },
-  { id: 9,  name: 'Dr. Sara Iyer',      spec: 'Endocrinologist',     dept: 'Endocrinology',  phone: '+91 98001 11009', email: 's.iyer@mediconnect.ai',     avail: 'On Duty'  },
-  { id: 10, name: 'Dr. Tom Bradley',    spec: 'Radiologist',         dept: 'Radiology',      phone: '+91 98001 11010', email: 't.bradley@mediconnect.ai',  avail: 'On Leave' },
-];
 
 const DEPARTMENTS = ['All', 'Cardiology', 'Orthopedics', 'Neurology', 'General', 'Pediatrics', 'Pulmonology', 'Dermatology', 'Psychiatry', 'Endocrinology', 'Radiology'];
 const AVAILABILITY = ['On Duty', 'Off Duty', 'On Leave'];
@@ -151,7 +139,7 @@ const DeleteConfirm = ({ doctor, onConfirm, onCancel }) => (
 );
 
 const DoctorManagement = () => {
-  const [doctors, setDoctors] = useState(INITIAL_DOCTORS);
+  const [doctors, setDoctors] = useState([]);
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('All');
   const [modalMode, setModalMode] = useState(null); 
@@ -164,6 +152,28 @@ const DoctorManagement = () => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 3000);
   };
+
+  const fetchDoctors = async () => {
+    try {
+      const data = await getAllDoctors();
+      const mapped = data.map(d => ({
+        id: d.id,
+        name: d.name,
+        spec: d.specialization,
+        dept: d.department,
+        phone: d.phone,
+        email: d.email,
+        avail: d.availability || 'On Duty'
+      }));
+      setDoctors(mapped);
+    } catch (e) {
+      console.error("Failed to load doctor database", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchDoctors();
+  }, []);
 
   const filtered = useMemo(() =>
     doctors.filter(d =>
@@ -190,25 +200,44 @@ const DoctorManagement = () => {
   
   const handleChange = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name || !form.spec || !form.dept) {
       showToast('error', 'Name, Specialization and Department fields are required.');
       return;
     }
-    if (modalMode === 'add') {
-      setDoctors(d => [...d, { id: Date.now(), ...form }]);
-      showToast('success', `${form.name} successfully registered.`);
-    } else {
-      setDoctors(d => d.map(doc => doc.id === editId ? { ...doc, ...form } : doc));
-      showToast('success', `${form.name} successfully updated.`);
+    const payload = {
+      name: form.name,
+      specialization: form.spec,
+      department: form.dept,
+      phone: form.phone,
+      email: form.email,
+      availability: form.avail
+    };
+
+    try {
+      if (modalMode === 'add') {
+        await addDoctor(payload);
+        showToast('success', `${form.name} successfully registered.`);
+      } else {
+        await updateDoctor(editId, payload);
+        showToast('success', `${form.name} successfully updated.`);
+      }
+      fetchDoctors();
+      closeModal();
+    } catch (err) {
+      showToast('error', 'Failed to save doctor details.');
     }
-    closeModal();
   };
 
-  const handleDelete = () => {
-    setDoctors(d => d.filter(doc => doc.id !== deleteTarget.id));
-    showToast('success', `${deleteTarget.name} has been removed.`);
-    setDeleteTarget(null);
+  const handleDelete = async () => {
+    try {
+      await deleteDoctor(deleteTarget.id);
+      showToast('success', `${deleteTarget.name} has been removed.`);
+      setDeleteTarget(null);
+      fetchDoctors();
+    } catch (err) {
+      showToast('error', 'Failed to delete doctor.');
+    }
   };
 
   const onDuty = doctors.filter(d => d.avail === 'On Duty').length;
