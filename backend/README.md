@@ -164,6 +164,23 @@ Test both of these live at `/docs` — Swagger UI supports file upload testing d
 
 ---
 
+## 8c. Departments & Analytics (new)
+
+**Departments** — standard CRUD, standalone table:
+- `POST /departments/`, `GET /departments/`, `GET /departments/{id}`, `PUT /departments/{id}`, `DELETE /departments/{id}`
+- **Note:** this is intentionally NOT linked to `Doctor.department` (which stays free text) — that was a deliberate decision to avoid a breaking change to the existing Doctor table right now. Departments is a standalone list for Admin to manage; it doesn't yet constrain what doctors can enter as their department.
+
+**Analytics** — one read-only endpoint powering the dashboard:
+- `GET /analytics/summary` — returns everything in one response:
+  - `total_patients`, `total_doctors`, `total_departments`
+  - `total_appointments` + `appointments_by_status` (e.g. `{"Scheduled": 2, "Completed": 1}`)
+  - `appointments_by_department` — grouped by `Doctor.department` text field
+  - `total_medical_reports`, `total_prescriptions`
+
+Tested live with real sample data (2 departments, 2 doctors, 2 patients, 3 appointments) — all counts and groupings verified correct before shipping.
+
+---
+
 ## 9. What's next (not included in this scaffold)
 
 - ~~Alembic migrations~~ ✅ Done

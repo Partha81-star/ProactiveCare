@@ -17,7 +17,7 @@ What happens here:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import doctor, patient, appointment, medical_report, prescription
+from app.routers import doctor, patient, appointment, medical_report, prescription, department, analytics
 
 # NOTE: Table creation is now handled by Alembic migrations, not by this file.
 # Previously this used Base.metadata.create_all(bind=engine) to auto-create
@@ -52,6 +52,8 @@ app.include_router(patient.router)
 app.include_router(appointment.router)
 app.include_router(medical_report.router)
 app.include_router(prescription.router)
+app.include_router(department.router)
+app.include_router(analytics.router)
 
 
 @app.get("/")

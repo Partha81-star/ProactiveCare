@@ -21,7 +21,7 @@ load_dotenv()
 # Without importing the model files directly, Base.metadata would be empty
 # even though Base itself is imported.
 from app.database import Base  # noqa: E402
-from app.models import patient, doctor, appointment, medical_report, prescription  # noqa: E402, F401
+from app.models import patient, doctor, appointment, medical_report, prescription, department  # noqa: E402, F401
 
 # --- MediConnect customization ends here ---
 
