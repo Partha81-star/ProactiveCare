@@ -1,15 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getAllPatients } from '../services/patientService';
+import { sendNotification } from '../services/notificationService';
 import {
   RiSparklingLine, RiUserHeartLine, RiGlobalLine, RiMailSendLine,
   RiFileListLine, RiCheckboxCircleLine, RiErrorWarningLine,
 } from 'react-icons/ri';
 
-const PATIENTS = [
-  { id: 'P-1001', name: 'John Doe', age: 34, disease: 'Hypertension', doctor: 'Dr. Emily Chen', phone: '+91 98765 43210', email: 'john.doe@email.com' },
-  { id: 'P-1002', name: 'Sarah Johnson', age: 28, disease: 'Diabetes', doctor: 'Dr. Raj Patel', phone: '+91 98001 11002', email: 's.johnson@email.com' },
-  { id: 'P-1003', name: 'Mark Thompson', age: 45, disease: 'Knee Osteoarthritis', doctor: 'Dr. Raj Patel', phone: '+91 98001 11003', email: 'm.thompson@email.com' },
-  { id: 'P-1004', name: 'Priya Nair', age: 52, disease: 'Chronic Migraine', doctor: 'Dr. Lisa Wong', phone: '+91 98001 11004', email: 'p.nair@email.com' },
-];
+
 
 const NOTIF_TYPES = [
   { value: 'appointment_reminder', label: 'Appointment Reminder' },
@@ -32,6 +29,7 @@ const TONE_OPTIONS = [
 ];
 
 const AiNotifications = () => {
+  const [patients, setPatients] = useState([]);
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [notifType, setNotifType] = useState('appointment_reminder');
   const [language, setLanguage] = useState('English');
@@ -47,6 +45,19 @@ const AiNotifications = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const fetchPatients = async () => {
+    try {
+      const data = await getAllPatients();
+      setPatients(data || []);
+    } catch (e) {
+      console.error("Failed to load patients list", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchPatients();
+  }, []);
+
   const handleGenerate = async () => {
     if (!selectedPatientId) {
       showToast('error', 'Please select a patient first.');
@@ -57,31 +68,33 @@ const AiNotifications = () => {
     // Simulate AI generation delay
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    const patient = PATIENTS.find((p) => p.id === selectedPatientId);
+    const patient = patients.find((p) => p.id === Number(selectedPatientId));
     let msg = '';
+    const docName = 'Dr. Emily Chen';
+    const condName = patient.medical_history || 'General Care';
 
     if (notifType === 'appointment_reminder') {
-      msg = `Dear ${patient.name},\nThis is a friendly reminder of your upcoming consultation with ${patient.doctor} scheduled for tomorrow at 10:00 AM. Please arrive 10 minutes early. If you need to reschedule, reply to this message.`;
+      msg = `Dear ${patient.name},\nThis is a friendly reminder of your upcoming consultation with ${docName} scheduled for tomorrow at 10:00 AM. Please arrive 10 minutes early. If you need to reschedule, reply to this message.`;
     } else if (notifType === 'lab_results') {
-      msg = `Hello ${patient.name},\nYour recent diagnostic laboratory reports for ${patient.disease} are now available in the MediConnect patient portal. ${patient.doctor} has reviewed them. No immediate actions are required, but please discuss during your next visit.`;
+      msg = `Hello ${patient.name},\nYour recent diagnostic laboratory reports for ${condName} are now available in the MediConnect patient portal. ${docName} has reviewed them. No immediate actions are required, but please discuss during your next visit.`;
     } else if (notifType === 'prescription_alert') {
-      msg = `Important: ${patient.name},\nYour prescription for ${patient.disease} management is due for a refill. Please confirm your pharmacy pickup or schedule delivery via our app.`;
+      msg = `Important: ${patient.name},\nYour prescription for ${condName} management is due for a refill. Please confirm your pharmacy pickup or schedule delivery via our app.`;
     } else {
-      msg = `Dear ${patient.name},\nWe hope you are recovering well. Please remember to log your daily blood pressure readings and follow the recovery exercise plan prescribed by ${patient.doctor}.`;
+      msg = `Dear ${patient.name},\nWe hope you are recovering well. Please remember to log your daily blood pressure readings and follow the recovery exercise plan prescribed by ${docName}.`;
     }
 
     if (language === 'Spanish') {
-      msg = `Estimado/a ${patient.name},\nLe recordamos su próxima consulta médica con el/la ${patient.doctor}. Por favor, confirme su asistencia o póngase en contacto con nosotros si necesita reprogramar.`;
+      msg = `Estimado/a ${patient.name},\nLe recordamos su próxima consulta médica con el/la ${docName}. Por favor, confirme su asistencia o póngase en contacto con nosotros si necesita reprogramar.`;
     } else if (language === 'Hindi') {
-      msg = `प्रिय ${patient.name},\nयह ${patient.doctor} के साथ आपकी आगामी अपॉइंटमेंट की याद दिलाने के लिए है। कृपया समय पर पहुंचें।`;
+      msg = `प्रिय ${patient.name},\nयह ${docName} के साथ आपकी आगामी अपॉइंटमेंट की याद दिलाने के लिए है। कृपया समय पर पहुंचें।`;
     } else if (language === 'French') {
-      msg = `Cher/Chère ${patient.name},\nNous vous rappelons votre prochain rendez-vous avec le ${patient.doctor}. Merci de confirmer votre présence.`;
+      msg = `Cher/Chère ${patient.name},\nNous vous rappelons votre prochain rendez-vous avec le ${docName}. Merci de confirmer votre présence.`;
     }
 
     if (tone === 'Empathetic') {
-      msg = `Warm greetings ${patient.name}, we hope you're feeling well today! Just a gentle reminder about your upcoming visit with ${patient.doctor}. We look forward to seeing you. Take care!`;
+      msg = `Warm greetings ${patient.name}, we hope you're feeling well today! Just a gentle reminder about your upcoming visit with ${docName}. We look forward to seeing you. Take care!`;
     } else if (tone === 'Urgent') {
-      msg = `ALERT: ${patient.name}, important notification regarding your care with ${patient.doctor}. Immediate action/review requested. Please log in or call us.`;
+      msg = `ALERT: ${patient.name}, important notification regarding your care with ${docName}. Immediate action/review requested. Please log in or call us.`;
     }
 
     setGeneratedMessage(msg);
@@ -96,15 +109,28 @@ const AiNotifications = () => {
     }
 
     setIsSending(true);
-    // Simulate api dispatch
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsSending(false);
-    showToast('success', `Notification successfully dispatched via ${channel}!`);
-    setGeneratedMessage('');
-    setSelectedPatientId('');
+    try {
+      const payload = {
+        patient_id: Number(selectedPatientId),
+        type: notifType,
+        channel: channel === 'SMS' ? 'SMS' :
+                 channel === 'Email' ? 'Email' :
+                 channel === 'WhatsApp' ? 'WhatsApp' : 'Phone Call',
+        message: generatedMessage
+      };
+      await sendNotification(payload);
+      setIsSending(false);
+      showToast('success', `Notification successfully dispatched via ${channel}!`);
+      setGeneratedMessage('');
+      setSelectedPatientId('');
+    } catch (err) {
+      console.error(err);
+      setIsSending(false);
+      showToast('error', 'Failed to dispatch notification.');
+    }
   };
 
-  const selectedPatient = PATIENTS.find((p) => p.id === selectedPatientId);
+  const selectedPatient = patients.find((p) => p.id === Number(selectedPatientId));
 
   return (
     <div className="space-y-6">
@@ -142,9 +168,9 @@ const AiNotifications = () => {
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-8 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 cursor-pointer appearance-none"
                   >
                     <option value="">-- Choose Patient --</option>
-                    {PATIENTS.map((p) => (
+                    {patients.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.id}) - {p.disease}
+                        {p.name} (P-{p.id}) - {p.medical_history || 'General'}
                       </option>
                     ))}
                   </select>
