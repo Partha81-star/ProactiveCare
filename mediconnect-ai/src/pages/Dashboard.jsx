@@ -16,76 +16,7 @@ import {
 } from 'recharts';
 import { ROUTES } from '../utils/constants';
 
-const STAT_CARDS = [
-  {
-    id: 1, label: 'Total Patients', value: '4,827',
-    change: '+12%', up: true, sub: 'vs last month',
-    Icon: RiUserHeartLine,
-    iconBg: 'bg-blue-50', iconColor: 'text-blue-600',
-  },
-  {
-    id: 2, label: "Today's Appointments", value: '38',
-    change: '+5', up: true, sub: 'vs yesterday',
-    Icon: RiCalendarCheckLine,
-    iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600',
-  },
-  {
-    id: 3, label: 'Messages Sent', value: '1,293',
-    change: '+8%', up: true, sub: 'this month',
-    Icon: RiMessageLine,
-    iconBg: 'bg-indigo-50', iconColor: 'text-indigo-600',
-  },
-  {
-    id: 4, label: 'Pending Notifications', value: '14',
-    change: '-3', up: false, sub: 'awaiting dispatch',
-    Icon: RiTimeLine,
-    iconBg: 'bg-amber-50', iconColor: 'text-amber-600',
-  },
-];
 
-const PATIENT_TREND = [
-  { month: 'Jan', admitted: 320, discharged: 290 },
-  { month: 'Feb', admitted: 380, discharged: 340 },
-  { month: 'Mar', admitted: 410, discharged: 380 },
-  { month: 'Apr', admitted: 390, discharged: 370 },
-  { month: 'May', admitted: 450, discharged: 420 },
-  { month: 'Jun', admitted: 490, discharged: 460 },
-  { month: 'Jul', admitted: 520, discharged: 480 },
-];
-
-const APPT_BY_DAY = [
-  { day: 'Mon', count: 28 },
-  { day: 'Tue', count: 35 },
-  { day: 'Wed', count: 42 },
-  { day: 'Thu', count: 38 },
-  { day: 'Fri', count: 30 },
-  { day: 'Sat', count: 18 },
-  { day: 'Sun', count: 10 },
-];
-
-const DEPT_DATA = [
-  { name: 'Cardiology',   value: 28, color: '#2563EB' },
-  { name: 'Orthopedics',  value: 22, color: '#4F46E5' },
-  { name: 'Neurology',    value: 18, color: '#059669' },
-  { name: 'Pediatrics',   value: 16, color: '#D97706' },
-  { name: 'General',      value: 16, color: '#DC2626' },
-];
-
-const RECENT_ACTIVITY = [
-  { id: 1, text: 'New patient John Doe registered',         time: '2 min ago',  Icon: RiUserAddLine,      color: 'text-blue-600',    bg: 'bg-blue-50' },
-  { id: 2, text: 'Appointment confirmed — Dr. Patel',        time: '15 min ago', Icon: RiCheckDoubleLine,  color: 'text-emerald-600', bg: 'bg-emerald-50' },
-  { id: 3, text: 'Lab results uploaded for Patient #P-1002', time: '1 hr ago',   Icon: RiFileListLine,     color: 'text-indigo-600',  bg: 'bg-indigo-50' },
-  { id: 4, text: 'ICU capacity alert — 85% full',           time: '2 hr ago',   Icon: RiAlertLine,        color: 'text-red-600',     bg: 'bg-red-50' },
-  { id: 5, text: 'Dr. Emily Chen completed 12 consultations',time: '3 hr ago',   Icon: RiStethoscopeLine,  color: 'text-slate-600',   bg: 'bg-slate-100' },
-];
-
-const UPCOMING_APPTS = [
-  { id: 1, patient: 'Sarah Johnson',  doctor: 'Dr. Emily Chen',   dept: 'Cardiology',   time: '09:00 AM', status: 'Confirmed',  avatar: 'SJ' },
-  { id: 2, patient: 'Mark Thompson',  doctor: 'Dr. Raj Patel',    dept: 'Orthopedics',  time: '10:30 AM', status: 'Confirmed',  avatar: 'MT' },
-  { id: 3, patient: 'Priya Nair',     doctor: 'Dr. Lisa Wong',    dept: 'Neurology',    time: '11:00 AM', status: 'Pending',    avatar: 'PN' },
-  { id: 4, patient: 'Alex Rodriguez', doctor: 'Dr. James Miller',  dept: 'General',      time: '02:00 PM', status: 'Confirmed',  avatar: 'AR' },
-  { id: 5, patient: 'Nina Shah',      doctor: 'Dr. Emily Chen',   dept: 'Pediatrics',   time: '03:30 PM', status: 'Pending',    avatar: 'NS' },
-];
 
 const Dashboard = () => {
   const navigate = useNavigate();
