@@ -103,7 +103,6 @@ const AppointmentBooking = () => {
   const [typedReply, setTypedReply] = useState('');
   const [speechSupported, setSpeechSupported] = useState(true);
   const [recorderSupported, setRecorderSupported] = useState(true);
-  const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const voiceRef = useRef({ active: false, history: [], session: null, step: 0, recognition: null });
 
@@ -152,9 +151,7 @@ const AppointmentBooking = () => {
             showToast('success', `Appointment booked. Reference: ${data.appointment_id}`);
             fetchAppointments();
           }
-        } else {
-          try { state.recognition.start(); } catch { setCallState('connected'); }
-        }
+        } else startAutomaticListening();
       });
     } catch (error) {
       if (state.active) {
@@ -167,37 +164,33 @@ const AppointmentBooking = () => {
     }
   };
 
-  const connectVoiceCall = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const connectVoiceCall = async () => {
     const phone = callPhone.trim();
     if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
       showToast('error', 'Enter a valid phone number with country code, for example +919876543210.');
       return;
     }
-    const rec = SpeechRecognition ? new SpeechRecognition() : null;
-    setSpeechSupported(Boolean(rec));
-    voiceRef.current = { active: true, history: [], session: null, step: 0,
-      phone, recognition: rec, controller: new AbortController() };
-    if (rec) {
-      rec.lang = 'en-IN';
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.onstart = () => { setCallState('listening'); setCallTranscript(''); };
-      rec.onresult = (event) => {
-        const text = event.results[0][0].transcript;
-        setCallTranscript(text);
-        sendVoiceTurn(text);
-      };
-      rec.onerror = (event) => {
-        if (!voiceRef.current.active) return;
-        if (event.error === 'no-speech') {
-          setCallState('connected');
-        } else {
-          setSpeechSupported(false);
-          setCallState('connected');
-          showToast('error', 'Microphone speech recognition is unavailable. Continue by typing below.');
-        }
-      };
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setRecorderSupported(false);
+      showToast('error', 'This browser does not support microphone calls. Please open the page in Chrome.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const audioContext = AudioContextClass ? new AudioContextClass() : null;
+      const analyser = audioContext?.createAnalyser();
+      if (analyser) {
+        analyser.fftSize = 1024;
+        audioContext.createMediaStreamSource(stream).connect(analyser);
+      }
+      voiceRef.current = { active: true, history: [], session: null, step: 0,
+        phone, controller: new AbortController(), mediaStream: stream, audioContext, analyser };
+    } catch {
+      showToast('error', 'Allow microphone access to start the hands-free receptionist call.');
+      return;
     }
     setCallHistory([]);
     setCallState('dialing');
@@ -214,28 +207,24 @@ const AppointmentBooking = () => {
     setShowVoiceCall(true);
   };
 
-  const stopRecording = () => {
-    const recorder = voiceRef.current.mediaRecorder;
-    if (recorder?.state === 'recording') recorder.stop();
-  };
-
-  const startRecording = async () => {
+  const startAutomaticListening = () => {
     const state = voiceRef.current;
-    if (!state.active || state.processing || isTranscribing) return;
+    if (!state.active || state.processing || state.transcribing || state.mediaRecorder?.state === 'recording') return;
     try {
-      state.recognition?.abort();
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = state.mediaStream;
       const preferredType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
         .find(type => MediaRecorder.isTypeSupported(type));
       const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
       const chunks = [];
       state.mediaRecorder = recorder;
-      state.mediaStream = stream;
       recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
       recorder.onstop = async () => {
-        stream.getTracks().forEach(track => track.stop());
-        setIsRecording(false);
-        if (!state.active || !chunks.length) return;
+        cancelAnimationFrame(state.vadFrame);
+        if (!state.active || !chunks.length || !state.heardSpeech) {
+          if (state.active) startAutomaticListening();
+          return;
+        }
+        state.transcribing = true;
         setIsTranscribing(true);
         setCallState('processing');
         try {
@@ -255,17 +244,46 @@ const AppointmentBooking = () => {
             setCallState('connected');
           }
         } finally {
+          state.transcribing = false;
           setIsTranscribing(false);
         }
       };
-      recorder.start();
+      state.heardSpeech = false;
+      state.silenceStarted = null;
+      let startedAt = null;
+      recorder.start(250);
       setCallTranscript('');
-      setIsRecording(true);
       setCallState('listening');
+      const levels = new Uint8Array(state.analyser?.fftSize || 0);
+      const detectSilence = now => {
+        if (!state.active || recorder.state !== 'recording') return;
+        startedAt ??= now;
+        let volume = 0;
+        if (state.analyser) {
+          state.analyser.getByteTimeDomainData(levels);
+          let energy = 0;
+          for (const level of levels) {
+            const sample = (level - 128) / 128;
+            energy += sample * sample;
+          }
+          volume = Math.sqrt(energy / levels.length);
+        }
+        if (volume > 0.025) {
+          state.heardSpeech = true;
+          state.silenceStarted = null;
+        } else if (state.heardSpeech) {
+          state.silenceStarted ??= now;
+        }
+        const finishedSpeaking = state.silenceStarted && now - state.silenceStarted > 1200;
+        const timedOut = now - startedAt > 30000;
+        if (finishedSpeaking || timedOut) recorder.stop();
+        else state.vadFrame = requestAnimationFrame(detectSilence);
+      };
+      state.vadFrame = requestAnimationFrame(detectSilence);
     } catch {
       setRecorderSupported(false);
       setCallState('connected');
-      showToast('error', 'Microphone permission was denied. Allow microphone access and try again.');
+      showToast('error', 'The microphone stopped working. Reconnect the call and allow microphone access.');
     }
   };
 
@@ -273,7 +291,12 @@ const AppointmentBooking = () => {
     event.preventDefault();
     const text = typedReply.trim();
     if (!text || !voiceRef.current.active || callState === 'processing') return;
-    voiceRef.current.recognition?.abort();
+    const state = voiceRef.current;
+    state.recognition?.abort();
+    if (state.mediaRecorder?.state === 'recording') {
+      state.heardSpeech = false;
+      state.mediaRecorder.stop();
+    }
     setTypedReply('');
     sendVoiceTurn(text);
   };
@@ -283,9 +306,11 @@ const AppointmentBooking = () => {
     state.active = false;
     state.controller?.abort();
     state.recognition?.abort();
+    cancelAnimationFrame(state.vadFrame);
     if (state.mediaRecorder?.state === 'recording') state.mediaRecorder.stop();
     state.mediaStream?.getTracks().forEach(track => track.stop());
-    window.speechSynthesis.cancel();
+    state.audioContext?.close();
+    window.speechSynthesis?.cancel();
     setCallState('ended');
     setShowVoiceCall(false);
   };
@@ -295,6 +320,10 @@ const AppointmentBooking = () => {
     state.active = false;
     state.controller?.abort();
     state.recognition?.abort();
+    cancelAnimationFrame(state.vadFrame);
+    if (state.mediaRecorder?.state === 'recording') state.mediaRecorder.stop();
+    state.mediaStream?.getTracks().forEach(track => track.stop());
+    state.audioContext?.close();
     window.speechSynthesis?.cancel();
   }, []);
   const [appointments, setAppointments] = useState([]);
@@ -753,14 +782,12 @@ const AppointmentBooking = () => {
             {callState !== 'idle' && callState !== 'ended' && (
               <div className="space-y-3">
                 {recorderSupported && (
-                  <button type="button" onClick={isRecording ? stopRecording : startRecording}
-                    disabled={isTranscribing || callState === 'processing'}
-                    className={`w-full rounded-xl px-4 py-3 text-sm font-bold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isRecording ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                  <div className="w-full rounded-xl border border-emerald-700/50 bg-emerald-950/40 px-4 py-3 text-sm font-bold text-emerald-300">
                     <span className="inline-flex items-center gap-2">
-                      <RiMicFill className={isRecording ? 'animate-pulse' : ''} />
-                      {isRecording ? 'Stop & Send Recording' : isTranscribing ? 'Understanding your voice…' : 'Tap to Record Your Answer'}
+                      <RiMicFill className={callState === 'listening' ? 'animate-pulse' : ''} />
+                      {isTranscribing ? 'Understanding your voice…' : callState === 'listening' ? 'Listening — speak naturally' : 'Microphone stays ready between prompts'}
                     </span>
-                  </button>
+                  </div>
                 )}
                 <form onSubmit={submitTypedReply} className="space-y-2">
                 <div className="flex gap-2">
@@ -774,7 +801,7 @@ const AppointmentBooking = () => {
                   </button>
                 </div>
                 <p className="text-[10px] text-slate-500">
-                  {recorderSupported ? 'Tap once to record, speak your answer, then tap again. Typing remains available as a backup.' : (speechSupported ? 'Speak after the prompt, or type your answer.' : 'Microphone recording is unavailable in this browser. Continue by typing.')}
+                  {recorderSupported ? 'Hands-free mode detects when you finish speaking and sends the answer automatically. Typing remains available as a backup.' : (speechSupported ? 'Speak after the prompt, or type your answer.' : 'Microphone recording is unavailable in this browser. Continue by typing.')}
                 </p>
                 </form>
               </div>
