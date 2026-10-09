@@ -102,11 +102,19 @@ const AppointmentBooking = () => {
   const [callPhone, setCallPhone] = useState('');
   const [typedReply, setTypedReply] = useState('');
   const [speechSupported, setSpeechSupported] = useState(true);
+  const [recorderSupported, setRecorderSupported] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const voiceRef = useRef({ active: false, history: [], session: null, step: 0, recognition: null });
 
   const speakText = (text, callback) => {
     if (!voiceRef.current.active) return;
     setCallState('speaking');
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+      setCallState('connected');
+      callback?.();
+      return;
+    }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-IN';
@@ -202,7 +210,63 @@ const AppointmentBooking = () => {
     setCallHistory([]);
     setCallState('idle');
     setSpeechSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
+    setRecorderSupported(Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder));
     setShowVoiceCall(true);
+  };
+
+  const stopRecording = () => {
+    const recorder = voiceRef.current.mediaRecorder;
+    if (recorder?.state === 'recording') recorder.stop();
+  };
+
+  const startRecording = async () => {
+    const state = voiceRef.current;
+    if (!state.active || state.processing || isTranscribing) return;
+    try {
+      state.recognition?.abort();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+        .find(type => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
+      const chunks = [];
+      state.mediaRecorder = recorder;
+      state.mediaStream = stream;
+      recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        setIsRecording(false);
+        if (!state.active || !chunks.length) return;
+        setIsTranscribing(true);
+        setCallState('processing');
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+          const body = new FormData();
+          body.append('audio', blob, `answer.${blob.type.includes('ogg') ? 'ogg' : 'webm'}`);
+          const response = await fetch(`${VOICE_BASE_URL}/api/v1/voice/transcribe`, {
+            method: 'POST', body, signal: state.controller.signal,
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.detail || 'Could not understand the recording.');
+          setCallTranscript(data.text);
+          await sendVoiceTurn(data.text);
+        } catch (error) {
+          if (state.active && error.name !== 'AbortError') {
+            showToast('error', error.message);
+            setCallState('connected');
+          }
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+      recorder.start();
+      setCallTranscript('');
+      setIsRecording(true);
+      setCallState('listening');
+    } catch {
+      setRecorderSupported(false);
+      setCallState('connected');
+      showToast('error', 'Microphone permission was denied. Allow microphone access and try again.');
+    }
   };
 
   const submitTypedReply = (event) => {
@@ -219,6 +283,8 @@ const AppointmentBooking = () => {
     state.active = false;
     state.controller?.abort();
     state.recognition?.abort();
+    if (state.mediaRecorder?.state === 'recording') state.mediaRecorder.stop();
+    state.mediaStream?.getTracks().forEach(track => track.stop());
     window.speechSynthesis.cancel();
     setCallState('ended');
     setShowVoiceCall(false);
@@ -685,7 +751,18 @@ const AppointmentBooking = () => {
             </div>}
 
             {callState !== 'idle' && callState !== 'ended' && (
-              <form onSubmit={submitTypedReply} className="space-y-2">
+              <div className="space-y-3">
+                {recorderSupported && (
+                  <button type="button" onClick={isRecording ? stopRecording : startRecording}
+                    disabled={isTranscribing || callState === 'processing'}
+                    className={`w-full rounded-xl px-4 py-3 text-sm font-bold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isRecording ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                    <span className="inline-flex items-center gap-2">
+                      <RiMicFill className={isRecording ? 'animate-pulse' : ''} />
+                      {isRecording ? 'Stop & Send Recording' : isTranscribing ? 'Understanding your voice…' : 'Tap to Record Your Answer'}
+                    </span>
+                  </button>
+                )}
+                <form onSubmit={submitTypedReply} className="space-y-2">
                 <div className="flex gap-2">
                   <input value={typedReply} onChange={(event) => setTypedReply(event.target.value)}
                     placeholder={speechSupported ? 'Or type your answer here…' : 'Type your answer here…'}
@@ -697,9 +774,10 @@ const AppointmentBooking = () => {
                   </button>
                 </div>
                 <p className="text-[10px] text-slate-500">
-                  {speechSupported ? 'Speak after the prompt, or type if the microphone does not respond.' : 'Voice recognition is not available in this browser. The typed conversation books through the same receptionist.'}
+                  {recorderSupported ? 'Tap once to record, speak your answer, then tap again. Typing remains available as a backup.' : (speechSupported ? 'Speak after the prompt, or type your answer.' : 'Microphone recording is unavailable in this browser. Continue by typing.')}
                 </p>
-              </form>
+                </form>
+              </div>
             )}
 
             {/* Call Action Controls */}

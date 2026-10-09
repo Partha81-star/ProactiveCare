@@ -25,6 +25,7 @@ from app.logger import setup_logging, get_logger
 from app.routes import router
 from app.voice.handler import router as voice_router
 from app.voice.local_handler import router as local_voice_router
+from app.voice.transcription import router as transcription_router
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -116,6 +117,7 @@ def create_app() -> FastAPI:
     application.include_router(voice_router)
     # Include local voice simulation routes
     application.include_router(local_voice_router)
+    application.include_router(transcription_router)
 
     # Health check endpoint
     @application.get(
