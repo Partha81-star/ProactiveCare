@@ -99,6 +99,9 @@ const AppointmentBooking = () => {
   const [callState, setCallState] = useState('idle'); // idle, dialing, connected, speaking, listening, processing, ended
   const [callTranscript, setCallTranscript] = useState('');
   const [callHistory, setCallHistory] = useState([]);
+  const [callPhone, setCallPhone] = useState('');
+  const [typedReply, setTypedReply] = useState('');
+  const [speechSupported, setSpeechSupported] = useState(true);
   const voiceRef = useRef({ active: false, history: [], session: null, step: 0, recognition: null });
 
   const speakText = (text, callback) => {
@@ -156,40 +159,59 @@ const AppointmentBooking = () => {
     }
   };
 
-  const startVoiceCall = () => {
+  const connectVoiceCall = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition || !window.speechSynthesis) {
-      showToast('error', 'Use a browser with speech recognition, such as Chrome.');
+    const phone = callPhone.trim();
+    if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+      showToast('error', 'Enter a valid phone number with country code, for example +919876543210.');
       return;
     }
-    if (!/^\+[1-9]\d{7,14}$/.test(form.phone)) {
-      showToast('error', 'Enter your phone number with country code in the booking form first.');
-      return;
-    }
-    const rec = new SpeechRecognition();
-    rec.lang = 'en-IN';
-    rec.continuous = false;
-    rec.interimResults = false;
+    const rec = SpeechRecognition ? new SpeechRecognition() : null;
+    setSpeechSupported(Boolean(rec));
     voiceRef.current = { active: true, history: [], session: null, step: 0,
-      phone: form.phone, recognition: rec, controller: new AbortController() };
-    rec.onstart = () => { setCallState('listening'); setCallTranscript(''); };
-    rec.onresult = (event) => {
-      const text = event.results[0][0].transcript;
-      setCallTranscript(text);
-      sendVoiceTurn(text);
-    };
-    rec.onerror = (event) => {
-      if (!voiceRef.current.active) return;
-      if (event.error === 'no-speech') sendVoiceTurn('');
-      else {
-        showToast('error', `Microphone error: ${event.error}`);
-        endVoiceCall();
-      }
-    };
-    setShowVoiceCall(true);
+      phone, recognition: rec, controller: new AbortController() };
+    if (rec) {
+      rec.lang = 'en-IN';
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.onstart = () => { setCallState('listening'); setCallTranscript(''); };
+      rec.onresult = (event) => {
+        const text = event.results[0][0].transcript;
+        setCallTranscript(text);
+        sendVoiceTurn(text);
+      };
+      rec.onerror = (event) => {
+        if (!voiceRef.current.active) return;
+        if (event.error === 'no-speech') {
+          setCallState('connected');
+        } else {
+          setSpeechSupported(false);
+          setCallState('connected');
+          showToast('error', 'Microphone speech recognition is unavailable. Continue by typing below.');
+        }
+      };
+    }
     setCallHistory([]);
     setCallState('dialing');
     sendVoiceTurn();
+  };
+
+  const startVoiceCall = () => {
+    setCallPhone(form.phone || '');
+    setTypedReply('');
+    setCallHistory([]);
+    setCallState('idle');
+    setSpeechSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
+    setShowVoiceCall(true);
+  };
+
+  const submitTypedReply = (event) => {
+    event.preventDefault();
+    const text = typedReply.trim();
+    if (!text || !voiceRef.current.active || callState === 'processing') return;
+    voiceRef.current.recognition?.abort();
+    setTypedReply('');
+    sendVoiceTurn(text);
   };
 
   const endVoiceCall = () => {
@@ -599,8 +621,9 @@ const AppointmentBooking = () => {
             </div>
 
             <div className="space-y-1.5">
-              <h3 className="text-white font-bold text-lg tracking-wide">MediConnect Local AI Voice Agent</h3>
+              <h3 className="text-white font-bold text-lg tracking-wide">MediConnect Online Receptionist</h3>
               <p className="text-[11px] uppercase tracking-widest text-slate-400 font-bold">
+                {callState === 'idle' && 'Ready to connect over the internet'}
                 {callState === 'dialing' && 'Ringing... Connecting local server'}
                 {callState === 'connected' && 'Agent connected'}
                 {callState === 'speaking' && 'Agent is speaking...'}
@@ -610,8 +633,28 @@ const AppointmentBooking = () => {
               </p>
             </div>
 
+            {callState === 'idle' && (
+              <div className="space-y-3 text-left">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400" htmlFor="online-call-phone">
+                  Patient phone number
+                </label>
+                <input id="online-call-phone" type="tel" autoFocus value={callPhone}
+                  onChange={(event) => setCallPhone(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') connectVoiceCall(); }}
+                  placeholder="+919876543210"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none" />
+                <p className="text-[10px] leading-relaxed text-slate-500">
+                  This identifies the patient record. The online call does not dial or charge this number.
+                </p>
+                <button type="button" onClick={connectVoiceCall}
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
+                  Connect to Receptionist
+                </button>
+              </div>
+            )}
+
             {/* Conversation Window */}
-            <div className="bg-slate-900/50 border border-slate-800/80 rounded-xl p-4 min-h-[140px] max-h-[220px] overflow-y-auto text-left space-y-3.5 text-xs custom-scrollbar">
+            {callState !== 'idle' && <div className="bg-slate-900/50 border border-slate-800/80 rounded-xl p-4 min-h-[140px] max-h-[220px] overflow-y-auto text-left space-y-3.5 text-xs custom-scrollbar">
               {callHistory.map((ch, idx) => (
                 <div key={idx} className={`flex flex-col ${ch.role === 'user' ? 'items-end' : 'items-start'}`}>
                   <span className="text-[9px] font-bold text-slate-500 uppercase mb-0.5">{ch.role === 'user' ? 'You' : 'AI Receptionist'}</span>
@@ -639,7 +682,25 @@ const AppointmentBooking = () => {
                   <span>Thinking...</span>
                 </div>
               )}
-            </div>
+            </div>}
+
+            {callState !== 'idle' && callState !== 'ended' && (
+              <form onSubmit={submitTypedReply} className="space-y-2">
+                <div className="flex gap-2">
+                  <input value={typedReply} onChange={(event) => setTypedReply(event.target.value)}
+                    placeholder={speechSupported ? 'Or type your answer here…' : 'Type your answer here…'}
+                    aria-label="Type your answer"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none" />
+                  <button type="submit" disabled={!typedReply.trim() || callState === 'processing'}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                    Send
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  {speechSupported ? 'Speak after the prompt, or type if the microphone does not respond.' : 'Voice recognition is not available in this browser. The typed conversation books through the same receptionist.'}
+                </p>
+              </form>
+            )}
 
             {/* Call Action Controls */}
             <div className="flex justify-center pt-2">
@@ -654,7 +715,7 @@ const AppointmentBooking = () => {
             </div>
 
             <p className="text-[10px] text-slate-500 font-semibold">
-              Uses browser speech and the same booking workflow as phone calls.
+              Online call over Wi-Fi/data. No international phone call is placed.
             </p>
           </div>
         </div>
