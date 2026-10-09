@@ -38,6 +38,26 @@ Use `APP_ENV=production` for deployment, a strong service token, real staff cred
 
 Twilio contracts: [Gather](https://www.twilio.com/docs/voice/twiml/gather) and [request validation](https://www.twilio.com/docs/usage/security#validating-requests).
 
+### Connect a development tunnel safely
+
+`scripts/voice_edge.py` exposes only the three Twilio callback routes. Start it using the gateway Python environment:
+
+```powershell
+./ai_notification_service/.venv/Scripts/python.exe -m uvicorn scripts.voice_edge:app --host 127.0.0.1 --port 8002
+```
+
+Point a Cloudflare Tunnel at `http://127.0.0.1:8002`, rather than exposing the whole gateway. With cloudflared installed, run `cloudflared tunnel --url http://127.0.0.1:8002 --no-autoupdate`. Use the HTTPS origin printed by that process:
+
+```powershell
+./ai_notification_service/.venv/Scripts/python.exe scripts/connect_phone.py configure https://YOUR_PUBLIC_HOST
+# Restart scripts/dev.py so both services load the new environment.
+./ai_notification_service/.venv/Scripts/python.exe scripts/connect_phone.py activate
+```
+
+The activation script verifies the public signed greeting, checks that unsigned requests and private routes are blocked, then updates the existing Twilio number's voice URL and status callback. It does not place a call or buy a number. Previous routing settings are saved locally in `.runtime/phone-routing-backup.json`. Secrets remain in ignored env files.
+
+Keep the project, edge and tunnel processes running for inbound calls. A [Cloudflare quick tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) is temporary: if restarted, it gets a different address, so repeat configuration and activation. For reliable ongoing reception, deploy to a stable HTTPS host or a named tunnel running as a supervised service; the desktop must stay awake when hosting locally.
+
 ## Optional Vapi integration
 
 Use Vapi's hosted conversational model and custom function tools rather than the old `/voice/local/chat/completions` Ollama proxy. That proxy has been removed. Configure the server URL as `https://YOUR_DOMAIN/api/v1/voice/webhook` and a secret header `X-Vapi-Secret` matching `VAPI_WEBHOOK_SECRET`.
