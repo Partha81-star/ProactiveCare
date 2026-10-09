@@ -5,13 +5,16 @@ Defines the "appointments" table. Each appointment links a Patient to a Doctor
 via foreign keys (patient_id, doctor_id).
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
 
 class Appointment(Base):
     __tablename__ = "appointments"
+    __table_args__ = (Index('uq_active_doctor_slot', 'doctor_id', 'appointment_time', unique=True,
+                           sqlite_where=text("status != 'Cancelled'"),
+                           postgresql_where=text("status != 'Cancelled'")),)
 
     id = Column(Integer, primary_key=True, index=True)
 

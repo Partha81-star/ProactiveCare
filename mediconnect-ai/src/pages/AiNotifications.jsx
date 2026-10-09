@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { getAllAppointments } from '../services/appointmentService';
+import { useCallback, useState, useEffect } from 'react';
 import { getAllPatients } from '../services/patientService';
 import { sendNotification } from '../services/notificationService';
 import {
@@ -10,16 +11,16 @@ import {
 
 const NOTIF_TYPES = [
   { value: 'appointment_reminder', label: 'Appointment Reminder' },
-  { value: 'lab_results', label: 'Lab Results Ready' },
-  { value: 'prescription_alert', label: 'Prescription Refill Alert' },
-  { value: 'follow_up', label: 'Follow-up Care Instructions' },
+  { value: 'lab_report_ready', label: 'Lab Results Ready' },
+  { value: 'medicine_reminder', label: 'Prescription Refill Alert' },
+  { value: 'follow_up_reminder', label: 'Follow-up Care Instructions' },
 ];
 
 const LANGUAGES = [
   { value: 'English', label: 'English' },
-  { value: 'Spanish', label: 'Spanish' },
+  { value: 'Marathi', label: 'Marathi' },
   { value: 'Hindi', label: 'Hindi' },
-  { value: 'French', label: 'French' },
+
 ];
 
 const TONE_OPTIONS = [
@@ -45,19 +46,20 @@ const AiNotifications = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const fetchPatients = async () => {
+  const fetchPatients = useCallback(async () => {
     try {
       const data = await getAllPatients();
       setPatients(data || []);
     } catch (e) {
       console.error("Failed to load patients list", e);
     }
-  };
-
-  useEffect(() => {
-    fetchPatients();
   }, []);
 
+  useEffect(() => {
+    // HTTP data loading updates state after the awaited network response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchPatients();
+  }, [fetchPatients]);
   const handleGenerate = async () => {
     if (!selectedPatientId) {
       showToast('error', 'Please select a patient first.');
@@ -65,69 +67,46 @@ const AiNotifications = () => {
     }
 
     setIsGenerating(true);
-    // Simulate AI generation delay
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    const patient = patients.find((p) => p.id === Number(selectedPatientId));
-    let msg = '';
-    const docName = 'Dr. Emily Chen';
-    const condName = patient.medical_history || 'General Care';
-
-    if (notifType === 'appointment_reminder') {
-      msg = `Dear ${patient.name},\nThis is a friendly reminder of your upcoming consultation with ${docName} scheduled for tomorrow at 10:00 AM. Please arrive 10 minutes early. If you need to reschedule, reply to this message.`;
-    } else if (notifType === 'lab_results') {
-      msg = `Hello ${patient.name},\nYour recent diagnostic laboratory reports for ${condName} are now available in the MediConnect patient portal. ${docName} has reviewed them. No immediate actions are required, but please discuss during your next visit.`;
-    } else if (notifType === 'prescription_alert') {
-      msg = `Important: ${patient.name},\nYour prescription for ${condName} management is due for a refill. Please confirm your pharmacy pickup or schedule delivery via our app.`;
-    } else {
-      msg = `Dear ${patient.name},\nWe hope you are recovering well. Please remember to log your daily blood pressure readings and follow the recovery exercise plan prescribed by ${docName}.`;
-    }
-
-    if (language === 'Spanish') {
-      msg = `Estimado/a ${patient.name},\nLe recordamos su próxima consulta médica con el/la ${docName}. Por favor, confirme su asistencia o póngase en contacto con nosotros si necesita reprogramar.`;
-    } else if (language === 'Hindi') {
-      msg = `प्रिय ${patient.name},\nयह ${docName} के साथ आपकी आगामी अपॉइंटमेंट की याद दिलाने के लिए है। कृपया समय पर पहुंचें।`;
-    } else if (language === 'French') {
-      msg = `Cher/Chère ${patient.name},\nNous vous rappelons votre prochain rendez-vous avec le ${docName}. Merci de confirmer votre présence.`;
-    }
-
-    if (tone === 'Empathetic') {
-      msg = `Warm greetings ${patient.name}, we hope you're feeling well today! Just a gentle reminder about your upcoming visit with ${docName}. We look forward to seeing you. Take care!`;
-    } else if (tone === 'Urgent') {
-      msg = `ALERT: ${patient.name}, important notification regarding your care with ${docName}. Immediate action/review requested. Please log in or call us.`;
-    }
-
-    setGeneratedMessage(msg);
-    setIsGenerating(false);
-    showToast('success', 'AI Message generated successfully.');
+    try {
+      const patient = patients.find(p => p.id === Number(selectedPatientId));
+      if (!patient) throw new Error('Select an existing patient.');
+      let detail = '';
+      if (notifType === 'appointment_reminder') {
+        const appointments = await getAllAppointments();
+        const appointment = appointments.filter(a => a.patient_id === patient.id &&
+          !['Cancelled', 'Completed'].includes(a.status) && new Date(a.appointment_time) > new Date())
+          .sort((a, b) => a.appointment_time.localeCompare(b.appointment_time))[0];
+        if (!appointment) throw new Error('This patient has no upcoming appointment.');
+        detail = ` Appointment: ${appointment.appointment_time.replace('T', ' ')}, ${appointment.doctor.name}.`;
+      }
+      const text = {
+        English: `Hello ${patient.name}, please contact the hospital regarding your ${NOTIF_TYPES.find(t => t.value === notifType).label.toLowerCase()}.`,
+        Hindi: `नमस्ते ${patient.name}, कृपया अपने अस्पताल से संपर्क करें।`,
+        Marathi: `नमस्कार ${patient.name}, कृपया आपल्या रुग्णालयाशी संपर्क साधा.`
+      };
+      setGeneratedMessage(text[language] + detail);
+      showToast('success', 'Message draft prepared. Review before sending.');
+    } catch (error) {
+      showToast('error', error.message);
+    } finally { setIsGenerating(false); }
   };
 
   const handleSend = async () => {
-    if (!generatedMessage) {
-      showToast('error', 'No message to send. Please generate one first.');
-      return;
-    }
-
+    const patient = patients.find(p => p.id === Number(selectedPatientId));
+    if (!generatedMessage || !patient) return;
     setIsSending(true);
     try {
-      const payload = {
-        patient_id: Number(selectedPatientId),
-        type: notifType,
-        channel: channel === 'SMS' ? 'SMS' :
-                 channel === 'Email' ? 'Email' :
-                 channel === 'WhatsApp' ? 'WhatsApp' : 'Phone Call',
-        message: generatedMessage
-      };
-      await sendNotification(payload);
-      setIsSending(false);
-      showToast('success', `Notification successfully dispatched via ${channel}!`);
+      const response = await sendNotification({
+        patient_name: patient.name, event: notifType, channel: channel.toLowerCase(),
+        language: { English: 'en', Hindi: 'hi', Marathi: 'mr' }[language],
+        phone: patient.phone, email: patient.email, message: generatedMessage
+      });
+      const status = response.notification.status;
+      if (status === 'failed') throw new Error('Message delivery failed. Check notification history and provider settings.');
+      showToast('success', status === 'simulated' ? 'Development simulation only; no message sent.' : `Provider status: ${status}`);
       setGeneratedMessage('');
-      setSelectedPatientId('');
-    } catch (err) {
-      console.error(err);
-      setIsSending(false);
-      showToast('error', 'Failed to dispatch notification.');
-    }
+    } catch (error) { showToast('error', error.message); }
+    finally { setIsSending(false); }
   };
 
   const selectedPatient = patients.find((p) => p.id === Number(selectedPatientId));
@@ -140,7 +119,7 @@ const AiNotifications = () => {
           <RiSparklingLine className="text-blue-600" /> AI Notification Generator
         </h1>
         <p className="text-slate-500 text-sm mt-0.5">
-          Generate customized, localized patient communications using AI templates
+          Prepare patient message drafts, review them, and send through configured providers
         </p>
       </div>
 

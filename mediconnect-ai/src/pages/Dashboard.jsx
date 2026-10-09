@@ -1,14 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { subscribeAppointments } from '../services/realtime';
+import { useCallback, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAllPatients } from '../services/patientService';
 import { getAllAppointments } from '../services/appointmentService';
 import { getAllNotifications } from '../services/notificationService';
 import {
   RiUserHeartLine, RiCalendarCheckLine, RiMessageLine,
-  RiTimeLine, RiUserAddLine, RiCheckDoubleLine,
-  RiFileListLine, RiAlertLine, RiStethoscopeLine,
-  RiBellLine, RiArrowUpLine, RiArrowDownLine,
-  RiCalendarLine, RiDownloadLine, RiPulseLine,
+  RiTimeLine, RiUserAddLine, RiFileListLine, RiCalendarLine, RiDownloadLine, RiPulseLine,
 } from 'react-icons/ri';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -36,12 +34,12 @@ const Dashboard = () => {
       hours = hours ? hours : 12; 
       const minutesStr = minutes < 10 ? '0' + minutes : minutes;
       return `${hours}:${minutesStr} ${ampm}`;
-    } catch (e) {
+    } catch {
       return '10:00 AM';
     }
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [pts, appts, notifs] = await Promise.all([
         getAllPatients(),
@@ -54,27 +52,16 @@ const Dashboard = () => {
     } catch (e) {
       console.error("Failed to load dashboard data", e);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    // HTTP data loading updates state after the awaited network response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
 
     // Set up WebSocket to automatically sync new voice registrations/bookings in real-time
-    const ws = new WebSocket('ws://localhost:8000/ws/appointments');
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.event === 'refresh_appointments') {
-          console.info("WS update received: reloading Dashboard statistics!");
-          loadData();
-        }
-      } catch (err) {
-        console.error("WebSocket message parsing error:", err);
-      }
-    };
-    return () => ws.close();
-  }, []);
-
+    return subscribeAppointments(loadData);
+  }, [loadData]);
   // ── Stats Calculations ───────────────────────────────────────
   const totalPatients = patients.length;
   const todayAppointments = appointments.filter(a => {
@@ -82,7 +69,7 @@ const Dashboard = () => {
       const dateStr = a.appointment_time?.split('T')[0];
       const todayStr = new Date().toISOString().split('T')[0];
       return dateStr === todayStr;
-    } catch (e) {
+    } catch {
       return false;
     }
   }).length;
@@ -142,7 +129,7 @@ const Dashboard = () => {
         try {
           const dayName = days[new Date(apt.appointment_time).getDay()];
           counts[dayName] = (counts[dayName] || 0) + 1;
-        } catch(e) {}
+        } catch { /* Ignore malformed records. */ }
       }
     });
 

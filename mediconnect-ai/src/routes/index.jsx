@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 
 // Layout & Guards
 import MainLayout       from '../components/layout/MainLayout';
@@ -6,14 +7,14 @@ import ProtectedRoute   from '../components/common/ProtectedRoute';
 
 // Pages
 import Login                from '../pages/Login';
-import Dashboard            from '../pages/Dashboard';
-import PatientRegistration  from '../pages/PatientRegistration';
-import DoctorManagement     from '../pages/DoctorManagement';
-import AppointmentBooking   from '../pages/AppointmentBooking';
-import AiNotifications      from '../pages/AiNotifications';
-import NotificationHistory  from '../pages/NotificationHistory';
-import Analytics            from '../pages/Analytics';
-import Settings             from '../pages/Settings';
+const Dashboard = lazy(() => import('../pages/Dashboard'));
+const PatientRegistration = lazy(() => import('../pages/PatientRegistration'));
+const DoctorManagement = lazy(() => import('../pages/DoctorManagement'));
+const AppointmentBooking = lazy(() => import('../pages/AppointmentBooking'));
+const AiNotifications = lazy(() => import('../pages/AiNotifications'));
+const NotificationHistory = lazy(() => import('../pages/NotificationHistory'));
+const Analytics = lazy(() => import('../pages/Analytics'));
+const Settings = lazy(() => import('../pages/Settings'));
 import NotFound             from '../pages/NotFound';
 
 // Route constants
@@ -21,6 +22,7 @@ import { ROUTES } from '../utils/constants';
 
 const AppRoutes = () => {
   return (
+    <Suspense fallback={<div className="p-6 text-slate-500">Loading page…</div>}>
     <Routes>
       {/* ── Public Routes ──────────────────────────────────────────── */}
       <Route path={ROUTES.HOME}  element={<Navigate to={ROUTES.DASHBOARD} replace />} />
@@ -44,6 +46,7 @@ const AppRoutes = () => {
       {/* ── 404 Fallback ───────────────────────────────────────────── */}
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </Suspense>
   );
 };
 

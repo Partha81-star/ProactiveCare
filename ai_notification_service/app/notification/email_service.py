@@ -52,6 +52,8 @@ class EmailChannel(NotificationChannel):
         settings = get_settings()
 
         if not settings.smtp_configured:
+            if not settings.is_development:
+                return DeliveryResult(success=False, channel=Channel.EMAIL, error='SMTP is not configured')
             return await self._mock_send(to, message, subject)
 
         try:

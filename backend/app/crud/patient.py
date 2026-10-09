@@ -20,6 +20,9 @@ def get_patients(db: Session, skip: int = 0, limit: int = 100):
 def create_patient(db: Session, patient: PatientCreate):
     db_patient = db.query(Patient).filter(Patient.email == patient.email).first()
     if db_patient:
+        from fastapi import HTTPException
+        if db_patient.name.strip().lower() != patient.name.strip().lower() or db_patient.phone != patient.phone:
+            raise HTTPException(409, 'This email belongs to a different patient. Verify the patient details.')
         return db_patient
     db_patient = Patient(**patient.model_dump())
     db.add(db_patient)

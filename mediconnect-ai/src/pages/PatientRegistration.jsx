@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
-import { getAllPatients, registerPatient } from '../services/patientService';
+import { bookPatientAppointment } from '../services/appointmentService';
+import { useCallback, useState, useEffect } from 'react';
+import { getAllPatients } from '../services/patientService';
 import { getAllDoctors } from '../services/doctorService';
 import {
   RiUserLine, RiUserHeartLine, RiPhoneLine, RiMailLine,
   RiMapPinLine, RiVirusLine, RiStethoscopeLine, RiCalendarLine,
   RiTranslate2, RiBellLine, RiSaveLine, RiRefreshLine,
   RiUserAddLine, RiHashtag, RiArrowDownSLine,
-  RiCheckboxCircleLine, RiCloseCircleLine, RiErrorWarningLine
+  RiCheckboxCircleLine, RiErrorWarningLine
 } from 'react-icons/ri';
 
 const GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
@@ -22,7 +23,7 @@ const NOTIF_METHODS = [
 const INITIAL = {
   firstName: '', lastName: '', age: '', gender: '',
   phone: '', email: '', address: '', disease: '',
-  doctorAssigned: '', appointmentDate: '', preferredLanguage: '',
+  doctorAssigned: '', appointmentDate: '', appointmentTime: '', preferredLanguage: '',
   notificationMethod: '',
 };
 
@@ -75,32 +76,33 @@ const PatientRegistration = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const fetchPatients = async () => {
+  const fetchPatients = useCallback(async () => {
     try {
       const data = await getAllPatients();
       setPatients(data);
     } catch (e) {
       console.error("Failed to load patients list", e);
     }
-  };
+  }, []);
 
-  const fetchDoctors = async () => {
+  const fetchDoctors = useCallback(async () => {
     try {
       const data = await getAllDoctors();
       setDoctorsList(data);
     } catch (e) {
       console.error("Failed to load doctors list", e);
     }
-  };
-
-  useEffect(() => {
-    fetchPatients();
-    fetchDoctors();
   }, []);
 
+  useEffect(() => {
+    // HTTP data loading updates state after the awaited network response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchPatients();
+    fetchDoctors();
+  }, [fetchPatients, fetchDoctors]);
   const handleSave = async (e) => {
     e.preventDefault();
-    const required = ['firstName', 'lastName', 'age', 'gender', 'phone', 'disease', 'doctorAssigned', 'appointmentDate'];
+    const required = ['firstName', 'lastName', 'age', 'gender', 'phone', 'disease', 'doctorAssigned', 'appointmentDate', 'appointmentTime'];
     const missing = required.filter(k => !form[k]);
     if (missing.length) {
       showToast('error', 'Please fill in all required fields.');
@@ -108,35 +110,13 @@ const PatientRegistration = () => {
     }
 
     try {
-      // 1. Create Patient
-      const patientPayload = {
-        name: `${form.firstName} ${form.lastName}`,
-        email: form.email || `${form.firstName.toLowerCase()}.${form.lastName.toLowerCase()}@mediconnect.com`,
-        phone: form.phone,
-        preferred_language: form.preferredLanguage || 'English',
-        medical_history: form.disease
-      };
-      
-      const patient = await registerPatient(patientPayload);
-      const patientId = patient.id;
-
-      // 2. Match Doctor by Name
-      const matchedDoctor = doctorsList.find(d => d.name === form.doctorAssigned);
-      const doctorId = matchedDoctor ? matchedDoctor.id : 1;
-
-      // 3. Create Appointment (default to 10:00 AM)
-      const apptPayload = {
-        patient_id: patientId,
-        doctor_id: doctorId,
-        appointment_time: `${form.appointmentDate}T10:00:00`,
-        status: 'Scheduled',
-        notes: form.disease
-      };
-      
-      const { bookAppointment } = await import('../services/appointmentService');
-      await bookAppointment(apptPayload);
-
-      showToast('success', `Patient ${patientPayload.name} registered and appointment created!`);
+      await bookPatientAppointment({
+        patient_name: `${form.firstName} ${form.lastName}`,
+        email: form.email || null, phone: form.phone, doctor: form.doctorAssigned,
+        appointment_time: `${form.appointmentDate}T${form.appointmentTime}:00`,
+        notes: form.disease, confirmed: true, idempotency_key: crypto.randomUUID()
+      });
+      showToast('success', `Patient ${form.firstName} ${form.lastName} registered and appointment created!`);
       setForm(INITIAL);
       fetchPatients();
     } catch (err) {
@@ -162,8 +142,8 @@ const PatientRegistration = () => {
         </div>
         <div className="flex gap-3">
           {[
-            { label: 'Total Registered', value: patients.length + 1040, color: 'text-blue-600' },
-            { label: 'Active Today',     value: 38,                      color: 'text-green-600' },
+            { label: 'Total Registered', value: patients.length, color: 'text-blue-600' },
+            { label: 'Active Today',     value: patients.length,                      color: 'text-green-600' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-white border border-slate-200 rounded-lg px-4 py-1.5 text-center shadow-xs">
               <p className={`text-lg font-bold leading-none ${color}`}>{value}</p>
@@ -243,6 +223,10 @@ const PatientRegistration = () => {
               <Field label="Appointment Date" required>
                 <IconInput icon={RiCalendarLine} type="date" value={form.appointmentDate} onChange={set('appointmentDate')}
                   min={new Date().toISOString().split('T')[0]} />
+              </Field>
+              <Field label="Appointment Time" required>
+                <input type="time" step="1800" min="09:00" max="16:30" required value={form.appointmentTime}
+                  onChange={set('appointmentTime')} className="w-full border border-slate-200 rounded-lg p-2" />
               </Field>
             </div>
           </div>

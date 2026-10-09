@@ -22,11 +22,12 @@ class ConnectionManager:
     async def broadcast(self, message: dict):
         """Send message to all connected React clients."""
         logger.info(f"Broadcasting dashboard update: {message}")
-        for connection in self.active_connections:
+        import asyncio
+        for connection in list(self.active_connections):
             try:
-                await connection.send_json(message)
+                await asyncio.wait_for(connection.send_json(message), timeout=1)
             except Exception as e:
                 # Silently clean up stale connections
-                pass
+                self.disconnect(connection)
 
 manager = ConnectionManager()

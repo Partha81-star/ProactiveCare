@@ -1,16 +1,16 @@
-import { useState, useEffect, useMemo } from 'react';
+import { subscribeAppointments } from '../services/realtime';
+import { useCallback, useState, useEffect, useMemo } from 'react';
 import { getAllPatients } from '../services/patientService';
 import { getAllAppointments } from '../services/appointmentService';
 import { getAllNotifications } from '../services/notificationService';
 import { getAllDoctors } from '../services/doctorService';
 import {
-  RiBarChart2Line, RiDownloadLine, RiArrowUpLine, RiArrowDownLine,
-  RiMessage2Line, RiCalendarCheckLine, RiUserHeartLine, RiStethoscopeLine,
+  RiBarChart2Line, RiDownloadLine, RiMessage2Line, RiCalendarCheckLine, RiUserHeartLine, RiStethoscopeLine,
 } from 'react-icons/ri';
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, RadialBarChart, RadialBar,
+  ResponsiveContainer, RadialBarChart, RadialBar,
 } from 'recharts';
 
 
@@ -68,7 +68,7 @@ const Analytics = () => {
   const [notifications, setNotifications] = useState([]);
   const [doctorsList, setDoctorsList] = useState([]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [pts, appts, notifs, docs] = await Promise.all([
         getAllPatients(),
@@ -83,23 +83,15 @@ const Analytics = () => {
     } catch (e) {
       console.error("Failed to load analytics data", e);
     }
-  };
-
-  useEffect(() => {
-    loadData();
-    // Re-fetch automatically on appointments WebSocket notifications
-    const ws = new WebSocket('ws://localhost:8000/ws/appointments');
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.event === 'refresh_appointments') {
-          loadData();
-        }
-      } catch (err) {}
-    };
-    return () => ws.close();
   }, []);
 
+  useEffect(() => {
+    // HTTP data loading updates state after the awaited network response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadData();
+    // Re-fetch automatically on appointments WebSocket notifications
+    return subscribeAppointments(loadData);
+  }, [loadData]);
   // 1. KPI Cards
   const totalPatients = patients.length;
   const totalAppointments = appointments.length;

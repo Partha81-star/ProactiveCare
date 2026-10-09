@@ -103,11 +103,7 @@ def create_app() -> FastAPI:
     # to call this service from different origins.
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",   # React dev server
-            "http://localhost:8000",   # FastAPI backend
-            "http://localhost:5173",   # Vite dev server (if used)
-        ],
+        allow_origins=settings.CORS_ORIGINS.split(','),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

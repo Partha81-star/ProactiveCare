@@ -11,24 +11,38 @@ Key pieces:
 """
 
 import os
+from pathlib import Path
+from sqlalchemy import event
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
 
 # Load variables from the .env file (like DATABASE_URL) into the environment
-load_dotenv()
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / '.env')
 
 # Read the database connection string from the environment.
 # Falls back to a default SQLite database file if .env is missing.
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "sqlite:///./mediconnect.db"
+    f"sqlite:///{(ROOT / 'mediconnect.db').as_posix()}"
 )
 
 # The engine is the low-level object that actually talks to the database
 engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
+    DATABASE_URL, pool_pre_ping=True,
+    connect_args={"check_same_thread": False, "timeout": 20} if DATABASE_URL.startswith('sqlite') else {}
 )
+if DATABASE_URL.startswith('postgresql://'):
+    DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
+
+if DATABASE_URL.startswith('sqlite'):
+    @event.listens_for(engine, 'connect')
+    def configure_sqlite(connection, _):
+        cursor = connection.cursor()
+        cursor.execute('PRAGMA foreign_keys=ON')
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.close()
 
 # SessionLocal is a "factory" — every time we call SessionLocal(), we get a new DB session
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

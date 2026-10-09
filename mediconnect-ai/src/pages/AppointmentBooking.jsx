@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
-import { getAllAppointments, bookAppointment } from '../services/appointmentService';
-import { registerPatient } from '../services/patientService';
+import { useCallback, useState, useMemo, useEffect, useRef } from 'react';
+import { getAllAppointments, bookPatientAppointment, updateAppointment } from '../services/appointmentService';
+import { VOICE_BASE_URL, subscribeAppointments } from '../services/realtime';
 import { getAllDoctors } from '../services/doctorService';
 import {
   RiCalendarCheckLine, RiUserHeartLine, RiStethoscopeLine,
@@ -8,8 +8,14 @@ import {
   RiAlertLine, RiSaveLine, RiRefreshLine, RiSearchLine,
   RiArrowDownSLine, RiEyeLine, RiCloseCircleLine,
   RiCheckboxCircleLine, RiFilterLine, RiErrorWarningLine,
-  RiPhoneFill, RiPhoneLine, RiVolumeUpLine, RiMicFill, RiVolumeMuteLine
+  RiPhoneFill, RiMicFill
 } from 'react-icons/ri';
+
+const to24Hour = (value) => {
+  const [clock, period] = value.split(' ');
+  const [hours, minutes] = clock.split(':').map(Number);
+  return `${String(hours % 12 + (period === 'PM' ? 12 : 0)).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+};
 
 const TIME_SLOTS = ['09:00 AM','09:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM',
                      '12:00 PM','02:00 PM','02:30 PM','03:00 PM','03:30 PM','04:00 PM','04:30 PM'];
@@ -68,157 +74,141 @@ const StatChip = ({ label, value, color }) => (
   </div>
 );
 
+  const formatTime = (isoString) => {
+    try {
+      const date = new Date(isoString);
+      let hours = date.getHours();
+      const minutes = date.getMinutes();
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      const minutesStr = minutes < 10 ? '0' + minutes : minutes;
+      return `${hours}:${minutesStr} ${ampm}`;
+    } catch {
+      return '10:00 AM';
+    }
+  };
+
 const AppointmentBooking = () => {
   const [form, setForm] = useState(EMPTY);
-  
+  const bookingKey = useRef(null);
+  const [saving, setSaving] = useState(false);
+
   // Local Voice Agent Simulation States
   const [showVoiceCall, setShowVoiceCall] = useState(false);
   const [callState, setCallState] = useState('idle'); // idle, dialing, connected, speaking, listening, processing, ended
   const [callTranscript, setCallTranscript] = useState('');
   const [callHistory, setCallHistory] = useState([]);
-  const [assistantReply, setAssistantReply] = useState('');
-  const [recognition, setRecognition] = useState(null);
+  const voiceRef = useRef({ active: false, history: [], session: null, step: 0, recognition: null });
 
-  // Initialize browser Speech Recognition (STT)
-  const initSpeech = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Speech recognition is not supported in this browser. Try Google Chrome.");
-      return null;
-    }
-    const rec = new SpeechRecognition();
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.lang = 'en-IN';
-
-    rec.onstart = () => {
-      setCallState('listening');
-      setCallTranscript('Listening...');
-    };
-
-    rec.onresult = async (event) => {
-      const text = event.results[0][0].transcript;
-      setCallTranscript(text);
-      setCallState('processing');
-
-      // Add user speech to history
-      const updatedHistory = [...callHistory, { role: 'user', content: text }];
-      setCallHistory(updatedHistory);
-
-      try {
-        const response = await fetch('http://localhost:8001/api/v1/voice/local/simulate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: text,
-            chat_history: updatedHistory
-          })
-        });
-        const data = await response.json();
-        
-        setAssistantReply(data.reply);
-        const newHistory = [...updatedHistory, { role: 'assistant', content: data.reply }];
-        setCallHistory(newHistory);
-
-        // Playback finished callback to resume recognition
-        const handlePlaybackFinished = () => {
-          if (data.booking_triggered) {
-            setCallState('ended');
-            showToast('success', 'Appointment successfully booked via Local AI Receptionist!');
-            setTimeout(() => window.location.reload(), 2500);
-          } else {
-            try { rec.start(); } catch (e) { console.warn("Recognition already active", e); }
-          }
-        };
-
-        // If ElevenLabs returned a base64 audio file, play it back. Else, use browser TTS.
-        if (data.audio_base64) {
-          playAudioBase64(data.audio_base64, handlePlaybackFinished);
-        } else {
-          speakText(data.reply, handlePlaybackFinished);
-        }
-      } catch (err) {
-        console.error("Local simulated conversation failed", err);
-        setCallState('ended');
-      }
-    };
-
-    rec.onerror = (e) => {
-      console.warn("Speech recognition error", e);
-      if (e.error === 'no-speech') {
-        // Retry listening
-        try { rec.start(); } catch (err) {}
-      } else {
-        setCallState('ended');
-      }
-    };
-
-    setRecognition(rec);
-    return rec;
-  };
-
-  // Browser Text-to-Speech (TTS)
   const speakText = (text, callback) => {
+    if (!voiceRef.current.active) return;
     setCallState('speaking');
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find(v => v.lang.includes('en-IN') || v.lang.includes('en-US')) || voices[0];
-    if (voice) utterance.voice = voice;
-
-    utterance.onend = () => {
-      if (callback) callback();
-    };
+    utterance.lang = 'en-IN';
+    utterance.onend = () => { if (voiceRef.current.active) callback?.(); };
+    utterance.onerror = () => { if (voiceRef.current.active) callback?.(); };
     window.speechSynthesis.speak(utterance);
   };
 
-  // ElevenLabs audio stream player
-  const playAudioBase64 = (base64Data, onEndCallback) => {
-    setCallState('speaking');
-    const audioUrl = `data:audio/mp3;base64,${base64Data}`;
-    const audio = new Audio(audioUrl);
-    audio.onended = () => {
-      if (onEndCallback) onEndCallback();
-    };
-    audio.onerror = (e) => {
-      console.warn("Failed to play base64 audio. Falling back.", e);
-      if (onEndCallback) onEndCallback();
-    };
-    audio.play().catch(err => {
-      console.warn("Audio playback failed, possibly browser policy blocked autoplay.", err);
-      if (onEndCallback) onEndCallback();
-    });
+  const sendVoiceTurn = async (text = '') => {
+    const state = voiceRef.current;
+    if (!state.active || state.processing) return;
+    state.processing = true;
+    setCallState('processing');
+    if (text) state.history.push({ role: 'user', content: text });
+    setCallHistory([...state.history]);
+    try {
+      const response = await fetch(`${VOICE_BASE_URL}/api/v1/voice/local/simulate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: state.controller.signal,
+        body: JSON.stringify({ text, phone: state.phone, session_id: state.session, step: state.step })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Voice service unavailable');
+      if (!state.active || voiceRef.current !== state) return;
+      state.session = data.session_id;
+      state.step = data.step;
+      state.history.push({ role: 'assistant', content: data.reply });
+      setCallHistory([...state.history]);
+      state.processing = false;
+      speakText(data.reply, () => {
+        if (data.ended) {
+          state.active = false;
+          setCallState('ended');
+          if (data.booking_triggered) {
+            showToast('success', `Appointment booked. Reference: ${data.appointment_id}`);
+            fetchAppointments();
+          }
+        } else {
+          try { state.recognition.start(); } catch { setCallState('connected'); }
+        }
+      });
+    } catch (error) {
+      if (state.active) {
+        showToast('error', error.message);
+        setCallState('ended');
+        state.active = false;
+      }
+    } finally {
+      state.processing = false;
+    }
   };
 
   const startVoiceCall = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition || !window.speechSynthesis) {
+      showToast('error', 'Use a browser with speech recognition, such as Chrome.');
+      return;
+    }
+    if (!/^\+[1-9]\d{7,14}$/.test(form.phone)) {
+      showToast('error', 'Enter your phone number with country code in the booking form first.');
+      return;
+    }
+    const rec = new SpeechRecognition();
+    rec.lang = 'en-IN';
+    rec.continuous = false;
+    rec.interimResults = false;
+    voiceRef.current = { active: true, history: [], session: null, step: 0,
+      phone: form.phone, recognition: rec, controller: new AbortController() };
+    rec.onstart = () => { setCallState('listening'); setCallTranscript(''); };
+    rec.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      setCallTranscript(text);
+      sendVoiceTurn(text);
+    };
+    rec.onerror = (event) => {
+      if (!voiceRef.current.active) return;
+      if (event.error === 'no-speech') sendVoiceTurn('');
+      else {
+        showToast('error', `Microphone error: ${event.error}`);
+        endVoiceCall();
+      }
+    };
     setShowVoiceCall(true);
-    setCallState('dialing');
     setCallHistory([]);
-    setCallTranscript('');
-    setAssistantReply('');
-
-    setTimeout(() => {
-      setCallState('connected');
-      const rec = recognition || initSpeech();
-      const welcome = "Hello! Welcome to MediConnect local voice receptionist. How can I help you book your appointment today?";
-      setAssistantReply(welcome);
-      setCallHistory([{ role: 'assistant', content: welcome }]);
-      speakText(welcome, () => {
-        if (rec) {
-          try { rec.start(); } catch(e) {}
-        }
-      });
-    }, 2000);
+    setCallState('dialing');
+    sendVoiceTurn();
   };
 
   const endVoiceCall = () => {
+    const state = voiceRef.current;
+    state.active = false;
+    state.controller?.abort();
+    state.recognition?.abort();
     window.speechSynthesis.cancel();
-    if (recognition) {
-      try { recognition.stop(); } catch(e) {}
-    }
     setCallState('ended');
-    setTimeout(() => setShowVoiceCall(false), 800);
+    setShowVoiceCall(false);
   };
+
+  useEffect(() => () => {
+    const state = voiceRef.current;
+    state.active = false;
+    state.controller?.abort();
+    state.recognition?.abort();
+    window.speechSynthesis?.cancel();
+  }, []);
   const [appointments, setAppointments] = useState([]);
   const [doctorsList, setDoctorsList] = useState([]);
   const [search, setSearch] = useState('');
@@ -227,23 +217,9 @@ const AppointmentBooking = () => {
   const [cancelTarget, setCancelTarget] = useState(null);
 
   // Time formatter helper
-  const formatTime = (isoString) => {
-    try {
-      const date = new Date(isoString);
-      let hours = date.getHours();
-      const minutes = date.getMinutes();
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      hours = hours % 12;
-      hours = hours ? hours : 12; 
-      const minutesStr = minutes < 10 ? '0' + minutes : minutes;
-      return `${hours}:${minutesStr} ${ampm}`;
-    } catch (e) {
-      return '10:00 AM';
-    }
-  };
 
   // Fetch appointments from API
-  const fetchAppointments = async () => {
+  const fetchAppointments = useCallback(async () => {
     try {
       const data = await getAllAppointments();
       const mapped = data.map(apt => {
@@ -251,7 +227,7 @@ const AppointmentBooking = () => {
         if (apt.appointment_time) {
           dateVal = apt.appointment_time.split('T')[0];
         }
-        
+
         return {
           id: `APT-${apt.id}`,
           patient: apt.patient?.name || 'Local Caller',
@@ -261,57 +237,34 @@ const AppointmentBooking = () => {
           time: apt.appointment_time ? formatTime(apt.appointment_time) : '10:00 AM',
           reason: apt.notes || 'Booked via AI receptionist',
           priority: 'Medium',
-          status: apt.status || 'Pending'
+          status: ['Scheduled', 'Rescheduled'].includes(apt.status) ? 'Confirmed' : (apt.status || 'Pending')
         };
       });
       setAppointments(mapped);
     } catch (err) {
       console.error("Failed to load database appointments:", err);
     }
-  };
+  }, []);
 
   // Fetch doctors from API
-  const fetchDoctors = async () => {
+  const fetchDoctors = useCallback(async () => {
     try {
       const data = await getAllDoctors();
       setDoctorsList(data);
     } catch (e) {
       console.error("Failed to load doctors list:", e);
     }
-  };
+  }, []);
 
   // Set up real-time websocket and pull initial lists
   useEffect(() => {
     fetchAppointments();
+    // HTTP data loading updates state after the awaited network response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDoctors();
 
-    const socketUrl = 'ws://localhost:8000/ws/appointments';
-    let socket = new WebSocket(socketUrl);
-
-    socket.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.event === 'refresh_appointments') {
-          console.info("WebSocket Event: Refreshing dashboard appointments list dynamically!");
-          fetchAppointments();
-        }
-      } catch (e) {
-        console.error("Failed to parse websocket message", e);
-      }
-    };
-
-    socket.onclose = () => {
-      console.warn("WebSocket disconnected. Reconnecting in 5s...");
-      setTimeout(() => {
-        fetchAppointments(); // fallback fetch
-      }, 5000);
-    };
-
-    return () => {
-      socket.close();
-    };
-  }, []);
-
+    return subscribeAppointments(fetchAppointments);
+  }, [fetchAppointments, fetchDoctors]);
   // Compute departments and filter doctors dynamically from the database
   const departments = useMemo(() => {
     return [...new Set(doctorsList.map(d => d.department))];
@@ -321,7 +274,7 @@ const AppointmentBooking = () => {
     return doctorsList.filter(d => !form.dept || d.department === form.dept);
   }, [doctorsList, form.dept]);
 
-  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const set = (k) => (e) => { bookingKey.current = null; setForm(f => ({ ...f, [k]: e.target.value })); };
   const setDirect = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000); };
@@ -336,60 +289,27 @@ const AppointmentBooking = () => {
     e.preventDefault();
     const req = ['name', 'email', 'phone', 'dept', 'doctor', 'date', 'time', 'priority'];
     if (req.some(k => !form[k])) { showToast('error', 'Please fill in all required fields.'); return; }
-    
+
+    if (saving) return;
+    setSaving(true);
     try {
-      // 1. Register new patient dynamically
-      const patientPayload = {
-        name: form.name,
-        email: form.email,
-        phone: form.phone,
-        preferred_language: 'English',
-        medical_history: form.reason || 'Self-registered via Web Portal'
-      };
-      const patient = await registerPatient(patientPayload);
-      const patientId = patient.id;
-
-      // 2. Map date + time to ISO format
-      const slotMap = {
-        '09:00 AM': '09:00:00',
-        '09:30 AM': '09:30:00',
-        '10:00 AM': '10:00:00',
-        '10:30 AM': '10:30:00',
-        '11:00 AM': '11:00:00',
-        '11:30 AM': '11:30:00',
-        '12:00 PM': '12:00:00',
-        '02:00 PM': '14:00:00',
-        '02:30 PM': '14:30:00',
-        '03:00 PM': '15:00:00',
-        '03:30 PM': '15:30:00',
-        '04:00 PM': '16:00:00',
-        '04:30 PM': '16:30:00'
-      };
-      const timeVal = slotMap[form.time] || '10:00:00';
-      const isoTime = `${form.date}T${timeVal}`;
-
-      // 3. Match doctor ID
-      const matchedDoctor = doctorsList.find(d => d.name === form.doctor);
-      const doctorId = matchedDoctor ? matchedDoctor.id : 1;
-
-      // 4. Create appointment payload
-      const apptPayload = {
-        patient_id: patientId,
-        doctor_id: doctorId,
-        appointment_time: isoTime,
-        status: 'Scheduled',
-        notes: form.reason || 'Self-registered via Web Portal'
-      };
-      
-      await bookAppointment(apptPayload);
+      await bookPatientAppointment({
+        patient_name: form.name, email: form.email, phone: form.phone,
+        doctor: form.doctor, appointment_time: `${form.date}T${to24Hour(form.time)}`,
+        notes: form.reason || 'Booked through web portal', confirmed: true,
+        idempotency_key: bookingKey.current || (bookingKey.current = crypto.randomUUID())
+      });
+      bookingKey.current = null;
       showToast('success', `Appointment successfully scheduled for ${form.name}.`);
       setForm(EMPTY);
-      
+
       // Fetch latest list
       fetchAppointments();
     } catch (err) {
       console.error("Booking error:", err);
       showToast('error', err.message || 'Failed to schedule appointment.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -424,7 +344,7 @@ const AppointmentBooking = () => {
 
   return (
     <div className="space-y-6">
-      
+
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -451,7 +371,7 @@ const AppointmentBooking = () => {
       {/* Booking Form Card */}
       <form onSubmit={handleBook}>
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-5">
-          
+
           <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100">
             <RiCalendarCheckLine className="text-blue-650 text-base" />
             <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Book New Consultation</h3>
@@ -537,7 +457,7 @@ const AppointmentBooking = () => {
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold transition-all">
               <RiRefreshLine /> Reset Form
             </button>
-            <button type="submit"
+            <button type="submit" disabled={saving}
               className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-all">
               <RiSaveLine /> Confirm Appointment
             </button>
@@ -547,7 +467,7 @@ const AppointmentBooking = () => {
 
       {/* Registry list */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-        
+
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-slate-150 bg-slate-50/50">
           <div>
             <h2 className="text-slate-800 font-semibold text-sm">Active Appointments</h2>
@@ -668,7 +588,7 @@ const AppointmentBooking = () => {
       {showVoiceCall && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md transition-all">
           <div className="w-full max-w-md bg-slate-955 border border-slate-800 rounded-2xl shadow-2xl p-6 relative overflow-hidden text-center space-y-6">
-            
+
             {/* Visual Ringing/Calling pulse */}
             <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
               <div className={`absolute inset-0 rounded-full bg-emerald-500/20 animate-ping duration-1000 ${callState === 'connected' || callState === 'speaking' || callState === 'listening' ? '' : 'hidden'}`} />
@@ -700,7 +620,7 @@ const AppointmentBooking = () => {
                   </div>
                 </div>
               ))}
-              
+
               {/* Live speech transcription */}
               {callState === 'listening' && callTranscript && (
                 <div className="flex flex-col items-end">
@@ -732,9 +652,9 @@ const AppointmentBooking = () => {
                 <RiPhoneFill className="text-white text-xl rotate-[135deg]" />
               </button>
             </div>
-            
+
             <p className="text-[10px] text-slate-500 font-semibold">
-              Uses local browser speech capabilities and local Llama 3.2.
+              Uses browser speech and the same booking workflow as phone calls.
             </p>
           </div>
         </div>

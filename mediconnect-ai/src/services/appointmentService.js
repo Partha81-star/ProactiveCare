@@ -28,6 +28,8 @@ import api from './api';
 export const bookAppointment = (appointmentData) =>
   api.post('/appointments', appointmentData);
 
+export const bookPatientAppointment = (data) => api.post('/bookings/web', data);
+
 /**
  * Fetch all appointments with optional filters.
  * @param {object} [params]
@@ -68,7 +70,7 @@ export const updateAppointment = (id, updatedData) =>
  * @returns {Promise<{ message: string }>}
  */
 export const cancelAppointment = (id, reason = '') =>
-  api.patch(`/appointments/${id}/cancel`, { reason });
+  api.put(`/appointments/${id}`, { status: 'Cancelled', ...(reason ? { notes: reason } : {}) });
 
 /**
  * Permanently delete an appointment record.

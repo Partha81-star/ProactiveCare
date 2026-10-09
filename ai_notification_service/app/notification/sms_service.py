@@ -51,6 +51,8 @@ class SMSChannel(NotificationChannel):
         settings = get_settings()
 
         if not settings.twilio_configured:
+            if not settings.is_development:
+                return DeliveryResult(success=False, channel=Channel.SMS, error='Twilio is not configured')
             return await self._mock_send(to, message)
 
         try:

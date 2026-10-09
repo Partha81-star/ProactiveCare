@@ -1,39 +1,33 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { useState } from 'react';
+import { AuthContext } from './useAuth';
 import { STORAGE_KEYS } from '../utils/constants';
+import { logoutUser } from '../services/authService';
 
-const AuthContext = createContext(null);
+function restoreSession() {
+  try {
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+    const user = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER) || 'null');
+    return token && user ? { token, user } : { token: null, user: null };
+  } catch {
+    localStorage.removeItem(STORAGE_KEYS.TOKEN);
+    localStorage.removeItem(STORAGE_KEYS.USER);
+    return { token: null, user: null };
+  }
+}
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  // Restore session from localStorage on app load
-  useEffect(() => {
-    const savedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
-    const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
-    if (savedToken && savedUser) {
-      try {
-        setToken(savedToken);
-        setUser(JSON.parse(savedUser));
-      } catch {
-        localStorage.removeItem(STORAGE_KEYS.TOKEN);
-        localStorage.removeItem(STORAGE_KEYS.USER);
-      }
-    }
-    setLoading(false);
-  }, []);
-
+  const [session, setSession] = useState(restoreSession);
+  const { user, token } = session;
+  const loading = false;
   const login = (userData, authToken) => {
-    setUser(userData);
-    setToken(authToken);
+    setSession({ user: userData, token: authToken });
     localStorage.setItem(STORAGE_KEYS.TOKEN, authToken);
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
   };
 
   const logout = () => {
-    setUser(null);
-    setToken(null);
+    logoutUser().catch(() => {});
+    setSession({ user: null, token: null });
     localStorage.removeItem(STORAGE_KEYS.TOKEN);
     localStorage.removeItem(STORAGE_KEYS.USER);
   };
@@ -44,12 +38,3 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
-
-// Custom hook for easy access
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
-};
-
-export default AuthContext;

@@ -43,11 +43,12 @@ api.interceptors.response.use(
     }
 
     // Build a clean error object for the calling code
-    const message =
+    let message =
       error.response?.data?.message ||
       error.response?.data?.detail ||
       error.message ||
       'An unexpected error occurred.';
+    if (Array.isArray(message)) message = message.map(item => item.msg || 'Invalid field').join('; ');
 
     return Promise.reject({ status, message, raw: error });
   }

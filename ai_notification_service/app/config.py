@@ -19,6 +19,7 @@ Why pydantic-settings over os.getenv()?
 """
 
 from functools import lru_cache
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,7 +39,7 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
 
     # ── Google Gemini AI ─────────────────────────────────────────
-    GEMINI_API_KEY: str  # Required — no default
+    GEMINI_API_KEY: str = ''  # Voice booking works independently of Gemini.
     GEMINI_MODEL: str = "gemini-2.0-flash"
 
     # ── Twilio (SMS & WhatsApp) ──────────────────────────────────
@@ -57,6 +58,10 @@ class Settings(BaseSettings):
 
     # ── Backend Integration ──────────────────────────────────────
     BACKEND_BASE_URL: str = "http://localhost:8000"
+    SERVICE_TOKEN: str = ''
+    PUBLIC_BASE_URL: str = ''
+    VAPI_WEBHOOK_SECRET: str = ''
+    CORS_ORIGINS: str = 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000'
     BACKEND_WEBHOOK_URL: str = "http://localhost:8000/api/v1/notification-status"
 
     # ── ElevenLabs ──────────────────────────────────────────────
@@ -69,7 +74,7 @@ class Settings(BaseSettings):
     # This tells pydantic-settings to read from a .env file
     # and ignore any extra variables it doesn't recognize.
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=Path(__file__).resolve().parents[1] / '.env',
         env_file_encoding="utf-8",
         extra="ignore",
     )

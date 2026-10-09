@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ROUTES } from '../../utils/constants';
 import {
   RiMenuLine, RiSearchLine, RiBellLine,
-  RiUserLine, RiSettings3Line, RiLogoutBoxRLine,
+  RiSettings3Line, RiLogoutBoxRLine,
 } from 'react-icons/ri';
 
 const MOCK_NOTIFICATIONS = [

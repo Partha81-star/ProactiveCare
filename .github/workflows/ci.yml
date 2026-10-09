@@ -1,0 +1,41 @@
+name: Project checks
+on:
+  push:
+  pull_request:
+jobs:
+  backend-and-voice:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated service environments
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/pip install -r backend/requirements.txt
+          python -m venv ai_notification_service/.venv
+          ai_notification_service/.venv/bin/pip install -r ai_notification_service/requirements.txt
+      - name: Backend tests
+        working-directory: backend
+        run: .venv/bin/python -m pytest -q
+      - name: Voice and notification tests
+        working-directory: ai_notification_service
+        run: .venv/bin/python -m pytest -q
+      - name: End-to-end HTTP call and restart test
+        run: python scripts/smoke_call.py
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mediconnect-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mediconnect-ai/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

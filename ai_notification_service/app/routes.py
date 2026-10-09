@@ -14,7 +14,9 @@ Endpoints:
 import asyncio
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Header
+import secrets
+from app.config import get_settings
 
 from app.logger import get_logger
 from app.schemas import (
@@ -30,11 +32,35 @@ from app.validator import validate_message
 from app.translator import validate_language
 from app.notification.dispatcher import dispatch_notification
 from app.utils import truncate_message
+from pydantic import Field
 
 logger = get_logger(__name__)
 
 # ── Router with API version prefix ───────────────────────────
-router = APIRouter(prefix="/api/v1", tags=["Notifications"])
+def service_auth(x_service_token: str = Header(default='')):
+    settings = get_settings()
+    if settings.SERVICE_TOKEN and not secrets.compare_digest(settings.SERVICE_TOKEN, x_service_token):
+        raise HTTPException(401, 'Invalid service token')
+    if not settings.SERVICE_TOKEN and not settings.is_development:
+        raise HTTPException(503, 'SERVICE_TOKEN must be configured')
+
+router = APIRouter(prefix="/api/v1", tags=["Notifications"], dependencies=[Depends(service_auth)])
+
+
+class ReviewedMessage(NotificationRequest):
+    message: str = Field(min_length=1, max_length=1600)
+
+
+@router.post('/send-message')
+async def send_reviewed_message(body: ReviewedMessage):
+    validation = validate_message(body.message, body)
+    if not validation.is_valid or validation.is_sanitized:
+        raise HTTPException(422, 'Please revise the message before sending: it did not pass message validation.')
+    result = await dispatch_notification(body, body.message)
+    simulated = bool(result.message_id and result.message_id.startswith('mock-'))
+    return {'status': 'simulated' if simulated else ('accepted' if result.success else 'failed'),
+            'channel': result.channel, 'message_preview': body.message,
+            'error': result.error}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -114,6 +140,9 @@ async def _process_notification(request: NotificationRequest) -> NotificationRes
 
         # ── Step 5: Build response ───────────────────────────
         if result.success:
+            if result.message_id and result.message_id.startswith('mock-'):
+                return NotificationResponse(status=DeliveryStatus.SIMULATED, channel=result.channel,
+                                            message_preview=truncate_message(message), timestamp=datetime.now())
             # Check if fallback was used
             if result.channel != request.channel:
                 return NotificationResponse(
@@ -126,7 +155,7 @@ async def _process_notification(request: NotificationRequest) -> NotificationRes
                 )
 
             return NotificationResponse(
-                status=DeliveryStatus.DELIVERED,
+                status=DeliveryStatus.ACCEPTED,
                 channel=result.channel,
                 message_preview=truncate_message(message),
                 timestamp=datetime.now(),

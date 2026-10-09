@@ -78,6 +78,8 @@ class DeliveryStatus(StrEnum):
     Possible outcomes of a notification delivery attempt.
     """
     DELIVERED = "delivered"
+    ACCEPTED = 'accepted'  # Provider accepted it; delivery is not yet verified.
+    SIMULATED = 'simulated'
     FAILED = "failed"
     PENDING = "pending"
     FALLBACK = "fallback"  # Delivered via a different channel than requested

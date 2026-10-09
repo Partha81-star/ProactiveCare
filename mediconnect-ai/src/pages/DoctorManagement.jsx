@@ -1,9 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useCallback, useState, useMemo, useEffect } from 'react';
 import { getAllDoctors, addDoctor, updateDoctor, deleteDoctor } from '../services/doctorService';
 import {
   RiStethoscopeLine, RiUserAddLine, RiSearchLine, RiEditLine,
-  RiDeleteBinLine, RiCloseLine, RiSaveLine, RiPhoneLine,
-  RiMailLine, RiHospitalLine, RiArrowDownSLine, RiFilterLine,
+  RiDeleteBinLine, RiCloseLine, RiSaveLine, RiArrowDownSLine, RiFilterLine,
   RiCheckboxCircleLine, RiErrorWarningLine,
 } from 'react-icons/ri';
 
@@ -153,13 +152,13 @@ const DoctorManagement = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const fetchDoctors = async () => {
+  const fetchDoctors = useCallback(async () => {
     try {
       const data = await getAllDoctors();
       const mapped = data.map(d => ({
         id: d.id,
         name: d.name,
-        spec: d.specialization,
+        spec: d.specialization || d.department,
         dept: d.department,
         phone: d.phone,
         email: d.email,
@@ -169,12 +168,13 @@ const DoctorManagement = () => {
     } catch (e) {
       console.error("Failed to load doctor database", e);
     }
-  };
-
-  useEffect(() => {
-    fetchDoctors();
   }, []);
 
+  useEffect(() => {
+    // HTTP data loading updates state after the awaited network response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchDoctors();
+  }, [fetchDoctors]);
   const filtered = useMemo(() =>
     doctors.filter(d =>
       (deptFilter === 'All' || d.dept === deptFilter) &&
@@ -224,7 +224,7 @@ const DoctorManagement = () => {
       }
       fetchDoctors();
       closeModal();
-    } catch (err) {
+    } catch {
       showToast('error', 'Failed to save doctor details.');
     }
   };
@@ -235,7 +235,7 @@ const DoctorManagement = () => {
       showToast('success', `${deleteTarget.name} has been removed.`);
       setDeleteTarget(null);
       fetchDoctors();
-    } catch (err) {
+    } catch {
       showToast('error', 'Failed to delete doctor.');
     }
   };

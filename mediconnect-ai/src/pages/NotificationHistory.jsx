@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
-import { getAllNotifications } from '../services/notificationService';
+import { useCallback, useState, useMemo, useEffect } from 'react';
+import { getAllNotifications, resendNotification } from '../services/notificationService';
 import {
   RiBellLine, RiSearchLine, RiFilterLine, RiArrowDownSLine,
   RiMailLine, RiPhoneLine, RiMessage2Line, RiWhatsappLine,
@@ -7,8 +7,7 @@ import {
   RiCheckboxCircleLine, RiTimeLine, RiCloseCircleLine,
   RiCalendarLine, RiUserHeartLine, RiAlertLine,
   RiHeartPulseLine, RiSyringeLine, RiTestTubeLine, RiFileListLine,
-  RiErrorWarningLine,
-} from 'react-icons/ri';
+  } from 'react-icons/ri';
 
 const NOTIF_TYPES = [
   { label: 'Appointment Reminder', Icon: RiCalendarLine,   color: 'bg-blue-50 text-blue-700 border-blue-100' },
@@ -29,13 +28,16 @@ const CHANNELS = [
 
 const STATUS_STYLE = {
   Delivered: { cls: 'bg-green-50 text-green-700 border-green-200', dot: 'bg-green-500', Icon: RiCheckboxCircleLine },
+  Simulated: { cls: 'bg-slate-50 text-slate-700 border-slate-200', dot: 'bg-slate-500', Icon: RiTimeLine },
+  Accepted: { cls: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500', Icon: RiTimeLine },
+  Fallback: { cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500', Icon: RiTimeLine },
   Pending:   { cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500', Icon: RiTimeLine },
   Failed:    { cls: 'bg-red-50 text-red-700 border-red-200',     dot: 'bg-red-500',   Icon: RiCloseCircleLine },
 };
 
 const initials = (name) => name.split(' ').map(w => w[0]).join('').slice(0, 2);
 
-const gen = (id, patient, type, channel, date, status) => ({ id: `NID-${id}`, patient, type, channel, date, status });
+
 
 
 
@@ -74,32 +76,33 @@ const NotificationHistory = () => {
   const [resent, setResent] = useState(null);
   const PER_PAGE = 10;
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
       const res = await getAllNotifications();
       const mapped = (res.notifications || res || []).map(n => ({
         id: `NID-${n.id}`,
-        patient: n.patient?.name || 'Local Caller',
-        type: n.type === 'appointment_reminder' ? 'Appointment Reminder' :
-              n.type === 'lab_results' ? 'Lab Results Ready' :
-              n.type === 'prescription_alert' ? 'Prescription Alert' :
-              n.type === 'emergency_alert' ? 'Emergency Alert' :
-              n.type === 'health_tip' ? 'Health Tip' :
-              n.type === 'follow_up' ? 'Follow-up Reminder' : 'Discharge Notice',
-        channel: n.channel || 'SMS',
-        date: n.scheduled_at ? n.scheduled_at.replace('T', ' ').slice(0, 16) : new Date().toISOString().replace('T', ' ').slice(0, 16),
-        status: n.status || 'Delivered'
+        patient: n.patient_name || 'Unknown patient',
+        type: n.event === 'appointment_reminder' ? 'Appointment Reminder' :
+              n.event === 'lab_report_ready' ? 'Lab Results Ready' :
+              n.event === 'medicine_reminder' ? 'Prescription Alert' :
+              n.event === 'emergency_notification' ? 'Emergency Alert' :
+              n.event === 'health_tip' ? 'Health Tip' :
+              n.event === 'follow_up_reminder' ? 'Follow-up Reminder' : 'Discharge Notice',
+        channel: {sms:'SMS',email:'Email',whatsapp:'WhatsApp'}[n.channel.toLowerCase()] || n.channel,
+        date: n.created_at.replace('T', ' ').slice(0, 16),
+        status: n.status.charAt(0).toUpperCase() + n.status.slice(1)
       }));
       setData(mapped);
     } catch (e) {
       console.error("Failed to load notifications list", e);
     }
-  };
-
-  useEffect(() => {
-    fetchNotifications();
   }, []);
 
+  useEffect(() => {
+    // HTTP data loading updates state after the awaited network response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchNotifications();
+  }, [fetchNotifications]);
   const delivered = data.filter(n => n.status === 'Delivered').length;
   const pending = data.filter(n => n.status === 'Pending').length;
   const failed = data.filter(n => n.status === 'Failed').length;
@@ -118,7 +121,14 @@ const NotificationHistory = () => {
 
   const resetFilters = () => { setSearch(''); setTypeF('All'); setChannelF('All'); setStatusF('All'); setDateF(''); setPage(1); };
 
-  const handleResend = (id) => { setResent(id); setTimeout(() => setResent(null), 2500); };
+  const handleResend = async (id) => {
+    try {
+      await resendNotification(id.replace('NID-', ''));
+      setResent(id);
+      fetchNotifications();
+      setTimeout(() => setResent(null), 2500);
+    } catch (error) { window.alert(error.message); }
+  };
 
   const getTypeConfig = (type) => NOTIF_TYPES.find(t => t.label === type) || NOTIF_TYPES[0];
   const getChannelConf = (channel) => CHANNELS.find(c => c.label === channel) || CHANNELS[0];
@@ -250,11 +260,11 @@ const NotificationHistory = () => {
                   </td>
                 </tr>
               ) : (
-                paginated.map((n, i) => {
+                paginated.map((n) => {
                   const typeConf = getTypeConfig(n.type);
                   const channelConf = getChannelConf(n.channel);
-                  const statusConf = STATUS_STYLE[n.status];
-                  const globalIdx = (page - 1) * PER_PAGE + i;
+                  const statusConf = STATUS_STYLE[n.status] || STATUS_STYLE.Pending;
+
 
                   return (
                     <tr key={n.id} className="hover:bg-slate-50/50 transition-colors">

@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { ROUTES } from '../utils/constants';
+import { loginUser } from '../services/authService';
 import {
   RiMailLine, RiLockLine, RiEyeLine, RiEyeOffLine,
   RiHospitalLine, RiShieldCheckLine, RiUserHeartLine,
   RiStethoscopeLine, RiBellLine, RiBarChart2Line,
-  RiArrowRightLine, RiCheckLine,
-} from 'react-icons/ri';
+  RiArrowRightLine, } from 'react-icons/ri';
 
 const MOCK_USERS = [
   { email: 'admin@mediconnect.ai',  password: 'admin123', name: 'Dr. Admin User',    role: 'admin'   },
@@ -49,17 +49,15 @@ const Login = () => {
     }
 
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1000));
-
-    const user = MOCK_USERS.find(u => u.email === email && u.password === password);
-    if (!user) {
-      setError('Invalid email or password. Please try again.');
+    try {
+      const data = await loginUser(email, password);
+      login(data.user, data.token);
+      navigate(ROUTES.DASHBOARD);
+    } catch (error) {
+      setError(error.message || 'Unable to sign in. Please try again.');
+    } finally {
       setLoading(false);
-      return;
     }
-
-    login({ name: user.name, role: user.role, email: user.email }, 'mock-jwt-token-' + Date.now());
-    navigate(ROUTES.DASHBOARD);
   };
 
   const fillDemo = (u) => {

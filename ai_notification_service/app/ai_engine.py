@@ -76,6 +76,8 @@ async def generate_message(
     settings = get_settings()
 
     # Build the prompt from request data
+    if not settings.GEMINI_API_KEY:
+        raise RuntimeError('Notification generation requires GEMINI_API_KEY. Voice booking does not.')
     system_prompt, user_prompt = build_prompt(request)
 
     logger.info(

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 import uuid
+import os
 
 from app.database import get_db
 from app.models.notification import Notification
@@ -129,7 +130,12 @@ async def send_notification(body: SendNotificationRequest, db: Session = Depends
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post("http://localhost:8001/api/v1/notify", json=ai_payload)
+            endpoint = '/api/v1/send-message' if body.message else '/api/v1/notify'
+            if body.message:
+                ai_payload['message'] = body.message
+            resp = await client.post(os.getenv('AI_SERVICE_URL', 'http://localhost:8001').rstrip('/') + endpoint,
+                                     json=ai_payload, headers={'X-Service-Token': os.getenv('SERVICE_TOKEN', '')})
+            resp.raise_for_status()
             data = resp.json()
             status = data.get("status", "failed")
             message_preview = data.get("message_preview")
@@ -159,9 +165,7 @@ def resend_notification(notification_id: str, db: Session = Depends(get_db)):
     n = db.query(Notification).filter(Notification.id == notification_id).first()
     if not n:
         raise HTTPException(status_code=404, detail="Notification not found")
-    n.status = "pending"
-    db.commit()
-    return {"message": "Notification queued for resend", "notification": n}
+    raise HTTPException(409, 'Open the message generator to review and resend. Legacy logs do not retain a verified destination or full payload.')
 
 
 @router.patch("/{notification_id}/read")
