@@ -57,7 +57,9 @@ def twiml(reply, session_id, step, ended=False):
 
 async def turn(request, step):
     form = await validate_twilio(request)
-    sid, phone = form.get('CallSid'), form.get('From')
+    sid = form.get('CallSid')
+    # On a callback, From is the clinic's Twilio number; To is the patient.
+    phone = form.get('To') if form.get('Direction') == 'outbound-api' else form.get('From')
     if not sid or not phone:
         raise HTTPException(422, 'CallSid and caller phone are required')
     try:

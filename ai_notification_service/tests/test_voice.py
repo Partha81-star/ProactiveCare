@@ -29,6 +29,27 @@ def test_incoming_gathers_speech_and_retries_silence(client, monkeypatch):
     assert xml.find('Gather').attrib['action'].endswith('step=1')
 
 
+@pytest.mark.parametrize('path', ['/incoming', '/process?step=1'])
+def test_callback_uses_patient_destination(client, monkeypatch, path):
+    async def backend(path, payload):
+        assert payload['phone'] == '+919876543210'
+        return {'reply': 'What is your name?', 'step': 1, 'ended': False}
+    monkeypatch.setattr(handler, 'backend', backend)
+    response = client.post('/api/v1/voice' + path, data={
+        'CallSid': 'CAcallback', 'From': '+15555550123',
+        'To': '+919876543210', 'Direction': 'outbound-api',
+    })
+    assert response.status_code == 200
+    assert ET.fromstring(response.text).find('Gather') is not None
+
+
+def test_callback_requires_destination(client):
+    response = client.post('/api/v1/voice/incoming', data={
+        'CallSid': 'CAcallback', 'From': '+15555550123', 'Direction': 'outbound-api',
+    })
+    assert response.status_code == 422
+
+
 def test_backend_failure_never_says_booked(client, monkeypatch):
     async def failed(*args):
         raise HTTPException(503, 'offline')
