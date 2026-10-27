@@ -25,6 +25,19 @@ Enter a phone number with country code in the appointment form, then open the br
 
 The agent asks for full name, doctor/department, date and time separately. It reads back the details and books only after “yes”. It can list doctors, state booking hours and direct medical questions to a clinician. It does not diagnose or prescribe. Supported date examples: `tomorrow`, `day after tomorrow`, `20 October`, `2026-10-20`. Time examples: `10 AM`, `10:30 AM`, `14:00`. Ambiguous times trigger a clarification.
 
+## Phone number for testing the receptionist
+
+Call **+1 229 663 4470** (dial as `+12296634470`) to test the configured telephone receptionist.
+
+- This is a **US number**. Calls from India require a carrier or internet calling service that supports US telephone calls; international charges may apply.
+- The backend, voice service, restricted phone gateway and public tunnel must be running. Follow **Connect a development tunnel safely** below to configure and activate the current tunnel before testing. Starting the web app alone does not make the phone number ready.
+- Follow any Twilio trial announcement, then give your full name, doctor or department, appointment date and preferred time. Say **yes** after the agent reads back the details. Wait for the appointment reference, then check the portal's **Appointments** page.
+- The current setup uses a Twilio trial account, so provider trial restrictions apply. A successful webhook check does not guarantee that a calling app or carrier can complete the telephone call.
+
+If international dialing is unavailable, a developer can arrange an agent callback to a verified patient number using the account's available Twilio balance. This requires a separate outbound call; it does not happen automatically when the project starts.
+
+This is a development test number, not an emergency or continuously staffed clinic line.
+
 ## Activate a real Twilio number
 
 1. Create a Twilio account and obtain a voice-enabled phone number. An existing number must be ported or forwarded using your carrier/provider; the application cannot take control of an arbitrary telephone number.
