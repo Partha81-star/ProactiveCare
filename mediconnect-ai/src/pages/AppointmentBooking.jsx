@@ -2,6 +2,7 @@ import { useCallback, useState, useMemo, useEffect, useRef } from 'react';
 import { getAllAppointments, bookPatientAppointment, updateAppointment } from '../services/appointmentService';
 import { VOICE_BASE_URL, subscribeAppointments } from '../services/realtime';
 import { getAllDoctors } from '../services/doctorService';
+import { STORAGE_KEYS } from '../utils/constants';
 import {
   RiCalendarCheckLine, RiUserHeartLine, RiStethoscopeLine,
   RiHospitalLine, RiCalendarLine, RiTimeLine, RiFileTextLine,
@@ -131,7 +132,8 @@ const AppointmentBooking = () => {
     setCallHistory([...state.history]);
     try {
       const response = await fetch(`${VOICE_BASE_URL}/api/v1/voice/local/simulate`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem(STORAGE_KEYS.TOKEN) || ''}` },
         signal: state.controller.signal,
         body: JSON.stringify({ text, phone: state.phone, session_id: state.session, step: state.step })
       });
@@ -233,6 +235,7 @@ const AppointmentBooking = () => {
           body.append('audio', blob, `answer.${blob.type.includes('ogg') ? 'ogg' : 'webm'}`);
           const response = await fetch(`${VOICE_BASE_URL}/api/v1/voice/transcribe`, {
             method: 'POST', body, signal: state.controller.signal,
+            headers: { Authorization: `Bearer ${localStorage.getItem(STORAGE_KEYS.TOKEN) || ''}` },
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.detail || 'Could not understand the recording.');

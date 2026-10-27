@@ -1,10 +1,11 @@
 import asyncio
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from google import genai
 from google.genai import types
 
 from app.config import get_settings
+from app.voice.staff import require_staff
 
 
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
@@ -16,7 +17,7 @@ SUPPORTED_AUDIO_TYPES = {
 }
 
 
-@router.post("/transcribe")
+@router.post("/transcribe", dependencies=[Depends(require_staff)])
 async def transcribe_recording(audio: UploadFile = File(...)) -> dict[str, str]:
     """Transcribe a short browser microphone recording for the receptionist."""
     settings = get_settings()

@@ -7,7 +7,7 @@ def test_transcribes_browser_recording(client, monkeypatch):
     monkeypatch.setattr(
         transcription,
         "get_settings",
-        lambda: SimpleNamespace(GEMINI_API_KEY="test-key", GEMINI_MODEL="test-model"),
+        lambda: SimpleNamespace(GEMINI_API_KEY="test-key", GEMINI_MODEL="test-model", is_development=True),
     )
     monkeypatch.setattr(
         transcription.genai,
@@ -32,7 +32,7 @@ def test_rejects_empty_recording(client, monkeypatch):
     monkeypatch.setattr(
         transcription,
         "get_settings",
-        lambda: SimpleNamespace(GEMINI_API_KEY="test-key", GEMINI_MODEL="test-model"),
+        lambda: SimpleNamespace(GEMINI_API_KEY="test-key", GEMINI_MODEL="test-model", is_development=True),
     )
     response = client.post(
         "/api/v1/voice/transcribe",
@@ -45,10 +45,20 @@ def test_requires_transcription_configuration(client, monkeypatch):
     monkeypatch.setattr(
         transcription,
         "get_settings",
-        lambda: SimpleNamespace(GEMINI_API_KEY="", GEMINI_MODEL="test-model"),
+        lambda: SimpleNamespace(GEMINI_API_KEY="", GEMINI_MODEL="test-model", is_development=True),
     )
     response = client.post(
         "/api/v1/voice/transcribe",
         files={"audio": ("answer.webm", b"recorded speech", "audio/webm")},
     )
     assert response.status_code == 503
+
+
+def test_transcription_disabled_in_production(client, monkeypatch):
+    from app.voice import staff
+    monkeypatch.setattr(staff, 'get_settings', lambda: SimpleNamespace(is_development=False))
+    response = client.post(
+        "/api/v1/voice/transcribe",
+        files={"audio": ("answer.webm", b"recorded speech", "audio/webm")},
+    )
+    assert response.status_code == 401

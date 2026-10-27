@@ -98,7 +98,36 @@ def test_vapi_does_not_invent_caller(client):
 def test_production_disables_unverified_webhooks_and_simulation(client, monkeypatch):
     monkeypatch.setattr(get_settings(), 'APP_ENV', 'production')
     assert client.post('/api/v1/voice/incoming', data={'CallSid': 'CA123456789', 'From': '+919876543210'}).status_code == 503
-    assert client.post('/api/v1/voice/local/simulate', json={'phone': '+919876543210'}).status_code == 403
+    assert client.post('/api/v1/voice/local/simulate', json={'phone': '+919876543210'}).status_code == 401
+
+
+def test_production_browser_voice_checks_staff_session(client, monkeypatch):
+    from app.voice import staff
+    monkeypatch.setattr(get_settings(), 'APP_ENV', 'production')
+
+    class AuthClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def get(self, url, headers):
+            assert url.endswith('/api/auth/profile')
+            return type('Response', (), {'status_code': 200 if headers['Authorization'] == 'Bearer valid-staff' else 401})()
+
+    async def booking_backend(path, payload):
+        return {'reply': 'What is your name?', 'step': 1, 'ended': False, 'booking_triggered': False}
+
+    monkeypatch.setattr(staff.httpx, 'AsyncClient', lambda **_: AuthClient())
+    monkeypatch.setattr(local_handler, 'backend', booking_backend)
+    payload = {'phone': '+919876543210'}
+    assert client.post('/api/v1/voice/local/simulate', json=payload,
+                       headers={'Authorization': 'Bearer wrong'}).status_code == 401
+    response = client.post('/api/v1/voice/local/simulate', json=payload,
+                           headers={'Authorization': 'Bearer valid-staff'})
+    assert response.status_code == 200
+    assert response.json()['reply'] == 'What is your name?'
 
 
 def test_local_simulator_forwards_session_and_turn(client, monkeypatch):

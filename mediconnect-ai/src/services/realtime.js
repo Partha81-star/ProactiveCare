@@ -19,7 +19,7 @@ export function subscribeAppointments(refresh) {
     socket.onclose = () => { if (!closed) reconnect = setTimeout(connect, 5000); };
     socket.onerror = () => socket.close();
   };
-  connect();
+  if (import.meta.env.DEV) connect();
   // Also updates across backend workers, which do not share websocket memory.
   const poll = setInterval(refresh, 15000);
   return () => { closed = true; clearTimeout(reconnect); clearInterval(poll); socket?.close(); };

@@ -77,6 +77,11 @@ from app.websocket import manager
 
 @app.websocket("/ws/appointments")
 async def websocket_endpoint(websocket: WebSocket):
+    if os.getenv('APP_ENV') == 'production':
+        # The dashboard polls as a fallback. Never broadcast patient activity
+        # to unauthenticated websocket clients on the public deployment.
+        await websocket.close(code=1008)
+        return
     await manager.connect(websocket)
     try:
         while True:

@@ -27,15 +27,14 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     f"sqlite:///{(ROOT / 'mediconnect.db').as_posix()}"
 )
+if DATABASE_URL.startswith('postgresql://'):
+    DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
 
 # The engine is the low-level object that actually talks to the database
 engine = create_engine(
     DATABASE_URL, pool_pre_ping=True,
     connect_args={"check_same_thread": False, "timeout": 20} if DATABASE_URL.startswith('sqlite') else {}
 )
-if DATABASE_URL.startswith('postgresql://'):
-    DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
-
 if DATABASE_URL.startswith('sqlite'):
     @event.listens_for(engine, 'connect')
     def configure_sqlite(connection, _):

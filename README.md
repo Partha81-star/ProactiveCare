@@ -21,7 +21,7 @@ Add the actual doctors in Doctor Management before booking. Set their names, dep
 
 ## Test the receptionist without a phone account
 
-Enter a phone number with country code in the appointment form, then open the browser voice simulation. Chrome microphone permission is required. The browser handles speech input/output; it uses the same persistent booking conversation as telephone calls. The simulation is disabled outside development.
+Enter a phone number with country code in the appointment form, then open the browser voice simulation. Chrome microphone permission is required. The browser handles speech input/output; it uses the same persistent booking conversation as telephone calls. In production, sign in as staff first; the voice gateway verifies the staff session with the backend.
 
 The agent asks for full name, doctor/department, date and time separately. It reads back the details and books only after “yes”. It can list doctors, state booking hours and direct medical questions to a clinician. It does not diagnose or prescribe. Supported date examples: `tomorrow`, `day after tomorrow`, `20 October`, `2026-10-20`. Time examples: `10 AM`, `10:30 AM`, `14:00`. Ambiguous times trigger a clarification.
 
@@ -70,6 +70,18 @@ Point a Cloudflare Tunnel at `http://127.0.0.1:8002`, rather than exposing the w
 The activation script verifies the public signed greeting, checks that unsigned requests and private routes are blocked, then updates the existing Twilio number's voice URL and status callback. It does not place a call or buy a number. Previous routing settings are saved locally in `.runtime/phone-routing-backup.json`. Secrets remain in ignored env files.
 
 Keep the project, edge and tunnel processes running for inbound calls. A [Cloudflare quick tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) is temporary: if restarted, it gets a different address, so repeat configuration and activation. For reliable ongoing reception, deploy to a stable HTTPS host or a named tunnel running as a supervised service; the desktop must stay awake when hosting locally.
+
+## Deploy the full project on Render
+
+The repository's `render.yaml` defines three services: a static React portal, a FastAPI backend, and a FastAPI voice gateway, plus persistent PostgreSQL. It selects always-on paid web services and a paid database because a sleeping service cannot reliably answer a phone call. Check the current [Render pricing](https://render.com/pricing) before creating the Blueprint. Twilio calls and optional AI features have separate usage costs. A free Render database expires and a free web service sleeps, so those plans are for temporary demos only.
+
+1. Connect this GitHub repository to Render and create a [Blueprint](https://render.com/docs/infrastructure-as-code) from `main` using `render.yaml`. Review its proposed services and charges before confirming creation.
+2. When Render prompts for secrets, set `STAFF_ADMIN_EMAIL` and a strong `STAFF_ADMIN_PASSWORD` for the backend, plus `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` for the voice service. Copy these Twilio values from your own provider dashboard or ignored local `.env`; never commit them. `SERVICE_TOKEN` is generated once and shared between services by the Blueprint. Add `GEMINI_API_KEY` only if you want the optional AI notification and browser transcription features.
+3. Check that Render assigned the expected hostnames: `proactivecare-partha81-web.onrender.com`, `proactivecare-partha81-api.onrender.com`, and `proactivecare-partha81-voice.onrender.com`. If Render changes a hostname, update every matching URL in the Blueprint and resync/rebuild before use. Confirm the frontend loads, backend `/health/ready` returns ready, and voice `/api/v1/health` returns healthy.
+4. Sign in with the production staff email/password and add doctors in **Doctor Management**. The hosted PostgreSQL database starts empty. Existing local SQLite patients and appointments are **not** copied by a Git push; migrate them separately before using the hosted portal as the source of truth.
+5. In the Twilio number settings, set **A call comes in** to `POST https://proactivecare-partha81-voice.onrender.com/api/v1/voice/incoming` and its status callback to `POST https://proactivecare-partha81-voice.onrender.com/api/v1/voice/status-callback`. Make one real call and verify its appointment appears in the hosted portal. Turn off the local quick-tunnel route only after the hosted call succeeds.
+
+For production use with real patients, review hosting, access, backup, retention, and applicable health-data obligations before entering patient information. The demo Twilio account also has trial call restrictions; a stable web host alone does not remove them.
 
 ## Optional Vapi integration
 
