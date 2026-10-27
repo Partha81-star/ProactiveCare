@@ -30,13 +30,41 @@ The agent asks for full name, doctor/department, date and time separately. It re
 Call **+1 229 663 4470** (dial as `+12296634470`) to test the configured telephone receptionist.
 
 - This is a **US number**. Calls from India require a carrier or internet calling service that supports US telephone calls; international charges may apply.
-- The backend, voice service, restricted phone gateway and public tunnel must be running. Follow **Connect a development tunnel safely** below to configure and activate the current tunnel before testing. Starting the web app alone does not make the phone number ready.
+- The backend, voice service, public edge and tunnel must be running. Follow **No Render: run the portal and phone agent from this computer** below. Starting the web app alone does not make the phone number ready.
 - Follow any Twilio trial announcement, then give your full name, doctor or department, appointment date and preferred time. Say **yes** after the agent reads back the details. Wait for the appointment reference, then check the portal's **Appointments** page.
 - The current setup uses a Twilio trial account, so provider trial restrictions apply. A successful webhook check does not guarantee that a calling app or carrier can complete the telephone call.
 
 If international dialing is unavailable, a developer can arrange an agent callback to a verified patient number using the account's available Twilio balance. This requires a separate outbound call; it does not happen automatically when the project starts.
 
 This is a development test number, not an emergency or continuously staffed clinic line.
+
+## No Render: run the portal and phone agent from this computer
+
+The current public address is **https://platform-uproar-unwilling.ngrok-free.dev**. It serves the built React portal and selected staff APIs through `scripts/public_edge.py`; Twilio callbacks reach the same voice gateway. The full-stack public edge and signed call probe passed on 28 October 2026. Production staff credentials are stored locally in the ignored `.runtime/staff-login.txt` file; the demo password is disabled on the public edge. The current Twilio incoming-call webhook points to this ngrok address.
+
+This uses the existing Windows computer as the server. Keep the backend on `127.0.0.1:8010`, the voice service on `127.0.0.1:8001`, `scripts.public_edge:app` on `127.0.0.1:8003`, and ngrok forwarding its assigned dev domain to port 8003. The database remains the local SQLite file. If the computer sleeps, loses power or internet, or a process stops, the website and phone agent stop answering. This is a working no-Render test deployment, not an always-on hosted clinic service. [ngrok's free plan](https://ngrok.com/pricing) has request and bandwidth limits and may show a browser warning page.
+
+After reboot, start the four processes in separate terminals from the repository root (use the same assigned ngrok URL and existing ignored `.env` files):
+
+```powershell
+cd backend; ./.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8010
+cd ai_notification_service; ./.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+./ai_notification_service/.venv/Scripts/python.exe -m uvicorn scripts.public_edge:app --host 127.0.0.1 --port 8003
+ngrok http 8003 --url https://platform-uproar-unwilling.ngrok-free.dev
+```
+
+Run each command from the repository root unless it begins with `cd`; the first two terminals should change into their own service folders. Rebuild the frontend with `VITE_API_BASE_URL=https://platform-uproar-unwilling.ngrok-free.dev/api` and `VITE_VOICE_BASE_URL=https://platform-uproar-unwilling.ngrok-free.dev` if its source changes.
+
+To verify this setup after restarting the services, run:
+
+```powershell
+./ai_notification_service/.venv/Scripts/python.exe scripts/smoke_public_edge.py
+$env:PUBLIC_EDGE_TEST_URL='https://platform-uproar-unwilling.ngrok-free.dev'
+./ai_notification_service/.venv/Scripts/python.exe scripts/smoke_public_edge.py
+./ai_notification_service/.venv/Scripts/python.exe scripts/connect_phone.py activate
+```
+
+The public edge allows signed Twilio callbacks and staff-authenticated portal requests. It does not expose the backend's internal `/api/voice` booking route. Use real patient information only after reviewing the local computer's backup, access and privacy controls.
 
 ## Activate a real Twilio number
 

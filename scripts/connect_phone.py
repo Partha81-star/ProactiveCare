@@ -56,8 +56,8 @@ def activate():
             raise ValueError('The receptionist greeting did not load. Routing was not changed.')
         if http.post(url, data=form).status_code != 403:
             raise ValueError('Unsigned calls must be rejected. Routing was not changed.')
-        if http.post(base + '/api/v1/voice/local/simulate', json={}).status_code != 404:
-            raise ValueError('The public endpoint must expose only phone callbacks. Routing was not changed.')
+        if http.post(base + '/api/v1/voice/local/simulate', json={}).status_code not in (401, 404):
+            raise ValueError('Browser voice must require staff sign-in or be hidden. Routing was not changed.')
     client = Client(values['TWILIO_ACCOUNT_SID'], auth)
     numbers = client.incoming_phone_numbers.list(phone_number=values.get('TWILIO_PHONE_NUMBER'), limit=2)
     if len(numbers) != 1 or not numbers[0].capabilities.get('voice'):
@@ -80,7 +80,7 @@ def activate():
     updated = client.incoming_phone_numbers(number.sid).update(**options)
     if updated.voice_url != url:
         raise ValueError('Twilio did not retain the requested webhook. Inspect its number settings.')
-    print('Public signed receptionist probe: PASS; unsigned requests blocked; private APIs hidden.')
+    print('Public signed receptionist probe: PASS; unsigned calls blocked; browser voice protected.')
     print('Twilio incoming-call webhook updated and verified for', updated.phone_number)
     print('Incoming URL:', updated.voice_url)
     print('Ready for a real incoming call. Keep the services and tunnel running.')
