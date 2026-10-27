@@ -35,7 +35,6 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -111,7 +110,7 @@ const Login = () => {
           </div>
 
           {/* Stats Bar */}
-          <div className="flex items-center justify-between border-t border-slate-800 pt-6 max-w-sm">
+          {import.meta.env.DEV && <div className="flex items-center justify-between border-t border-slate-800 pt-6 max-w-sm">
             {STATS.map(({ value, label }) => (
               <div key={label}>
                 <p className="text-xl font-bold text-white leading-none">{value}</p>
@@ -122,13 +121,13 @@ const Login = () => {
               <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
               <span className="text-green-400 text-[10.5px] font-semibold">Active</span>
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Footer Details */}
         <div className="flex items-center gap-2 text-[11px] text-slate-500">
           <RiShieldCheckLine className="text-slate-400 text-sm" />
-          Secure Gateway · HIPAA Compliant · AES-256 Encryption Standard
+          Staff access only · Patient records require sign-in
         </div>
       </div>
 
@@ -145,11 +144,11 @@ const Login = () => {
               <span className="font-bold text-slate-800 text-sm">MediConnect AI</span>
             </div>
             <h2 className="text-xl font-bold text-slate-800">Sign in to your account</h2>
-            <p className="text-slate-500 text-xs mt-1">Enter your medical credentials to access the system</p>
+            <p className="text-slate-500 text-xs mt-1">{import.meta.env.DEV ? 'Enter your medical credentials to access the system' : 'Use the staff credentials provided by your administrator'}</p>
           </div>
 
           {/* Demo Login Quick fill */}
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+          {import.meta.env.DEV && <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Demo User Roles</p>
             <div className="flex gap-2">
               {MOCK_USERS.map(u => (
@@ -162,7 +161,7 @@ const Login = () => {
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
 
           {/* Credentials Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -206,22 +205,6 @@ const Login = () => {
                   {showPass ? <RiEyeOffLine /> : <RiEyeLine />}
                 </button>
               </div>
-            </div>
-
-            {/* Remember Me + Reset */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={e => setRemember(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 border-slate-355 rounded focus:ring-blue-500"
-                />
-                <span className="text-slate-600 text-xs select-none">Remember this device</span>
-              </label>
-              <button type="button" className="text-xs text-blue-600 hover:text-blue-700 font-semibold">
-                Forgot password?
-              </button>
             </div>
 
             {/* Form Error Banner */}
