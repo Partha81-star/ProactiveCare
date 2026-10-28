@@ -35,6 +35,6 @@ def client(tmp_path):
 
 @pytest.fixture
 def staff(client):
-    response = client.post('/api/auth/login', json={'email': 'admin@mediconnect.ai', 'password': 'admin123'})
+    response = client.post('/api/auth/login', json={'email': 'admin@mediconnect.ai', 'password': 'admin@123'})
     assert response.status_code == 200
     return {'Authorization': f'Bearer {response.json()["token"]}'}

@@ -26,9 +26,9 @@ security = HTTPBearer(auto_error=False)
 
 # ── Mirrors the frontend MOCK_USERS exactly ──────────────────
 STAFF_USERS = {
-    "admin@mediconnect.ai":  {"password": "admin123",  "name": "Dr. Admin User",   "role": "admin"},
-    "doctor@mediconnect.ai": {"password": "doctor123", "name": "Dr. Emily Chen",   "role": "doctor"},
-    "nurse@mediconnect.ai":  {"password": "nurse123",  "name": "Nurse Sarah Kim",  "role": "nurse"},
+    "admin@mediconnect.ai":  {"password": "admin@123",  "name": "Dr. Admin User",   "role": "admin"},
+    "doctor@mediconnect.ai": {"password": "doctor@123", "name": "Dr. Emily Chen",   "role": "doctor"},
+    "nurse@mediconnect.ai":  {"password": "nurse@123",  "name": "Nurse Sarah Kim",  "role": "nurse"},
 }
 
 # Simple in-memory token store  {token: user_email}
@@ -36,7 +36,9 @@ ACTIVE_TOKENS: dict[str, str] = {}
 
 
 def staff_users():
-    users = dict(STAFF_USERS) if os.getenv('APP_ENV', 'development') == 'development' else {}
+    if os.getenv('APP_ENV', 'development') == 'development':
+        return dict(STAFF_USERS)
+    users = {}
     email, password = os.getenv('STAFF_ADMIN_EMAIL'), os.getenv('STAFF_ADMIN_PASSWORD')
     if email and password:
         users[email] = {'password': password, 'name': 'Hospital Administrator', 'role': 'admin'}

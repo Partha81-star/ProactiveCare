@@ -13,7 +13,7 @@ Install Python 3.12 and Node.js 24, then run from the repository root:
 py -3.12 scripts/dev.py
 ```
 
-Keep this terminal open. Ctrl+C stops all three services. The launcher stops the other services if one exits. It binds locally for development. Open http://localhost:5173 and sign in with `admin@mediconnect.ai` / `admin123`. These demo accounts work only with `APP_ENV=development`; production requires `STAFF_ADMIN_EMAIL` and `STAFF_ADMIN_PASSWORD`.
+Keep this terminal open. Ctrl+C stops all three services. The launcher stops the other services if one exits. It binds locally for development. Open http://localhost:5173 and use one of the demo accounts shown on the login page: `admin@mediconnect.ai` / `admin@123`, `doctor@mediconnect.ai` / `doctor@123`, or `nurse@mediconnect.ai` / `nurse@123`. These demo accounts work only with `APP_ENV=development`; production requires `STAFF_ADMIN_EMAIL` and `STAFF_ADMIN_PASSWORD`.
 
 The old `venv` folders may reference a removed Python installation. Setup creates separate `.venv` folders without changing those old environments. SQLite defaults to `backend/mediconnect.db`, regardless of the working directory. Existing local data is preserved. Database files are excluded from new commits.
 
@@ -27,7 +27,7 @@ The agent asks for full name, doctor/department, date and time separately. It re
 
 ## Phone number for testing the receptionist
 
-Call **+1 229 663 4470** (dial as `+12296634470`) to test the configured telephone receptionist.
+The test number is **+1 229 663 4470** (dial as `+12296634470`). **Inbound calling is paused while this project runs with local demo logins.** Reactivate a production gateway and public tunnel before calling it.
 
 - This is a **US number**. Calls from India require a carrier or internet calling service that supports US telephone calls; international charges may apply.
 - The backend, voice service, public edge and tunnel must be running. Follow **No Render: run the portal and phone agent from this computer** below. Starting the web app alone does not make the phone number ready.
@@ -40,11 +40,11 @@ This is a development test number, not an emergency or continuously staffed clin
 
 ## No Render: run the portal and phone agent from this computer
 
-The current public address is **https://platform-uproar-unwilling.ngrok-free.dev**. It serves the built React portal and selected staff APIs through `scripts/public_edge.py`; Twilio callbacks reach the same voice gateway. The full-stack public edge and signed call probe passed on 28 October 2026. Production staff credentials are stored locally in the ignored `.runtime/staff-login.txt` file; the demo password is disabled on the public edge. The current Twilio incoming-call webhook points to this ngrok address.
+The previous public test used **https://platform-uproar-unwilling.ngrok-free.dev** through `scripts/public_edge.py`. The full-stack public edge and signed call probe passed on 28 October 2026, but the tunnel is currently stopped while local demo accounts are enabled. Twilio's incoming-call webhook may still point to this inactive address. Production staff credentials remain in the ignored `.runtime/staff-login.txt` file for later deployment; demo passwords must never be exposed through the public edge.
 
-This uses the existing Windows computer as the server. Keep the backend on `127.0.0.1:8010`, the voice service on `127.0.0.1:8001`, `scripts.public_edge:app` on `127.0.0.1:8003`, and ngrok forwarding its assigned dev domain to port 8003. The database remains the local SQLite file. If the computer sleeps, loses power or internet, or a process stops, the website and phone agent stop answering. This is a working no-Render test deployment, not an always-on hosted clinic service. [ngrok's free plan](https://ngrok.com/pricing) has request and bandwidth limits and may show a browser warning page.
+The previous setup used this Windows computer as the server: backend on `127.0.0.1:8010`, voice service on `127.0.0.1:8001`, `scripts.public_edge:app` on `127.0.0.1:8003`, and ngrok forwarding its assigned dev domain to port 8003. The database remained local SQLite. If the computer sleeps, loses power or internet, or a process stops, the website and phone agent stop answering. This method is for testing, not an always-on hosted clinic service. [ngrok's free plan](https://ngrok.com/pricing) has request and bandwidth limits and may show a browser warning page.
 
-After reboot, start the four processes in separate terminals from the repository root (use the same assigned ngrok URL and existing ignored `.env` files):
+To reactivate this setup later, first set both ignored service `.env` files to `APP_ENV=production`, use strong staff credentials, and build the frontend for the public origin. Then start the four processes in separate terminals from the repository root:
 
 ```powershell
 cd backend; ./.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8010

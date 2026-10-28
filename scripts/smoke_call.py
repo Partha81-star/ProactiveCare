@@ -83,7 +83,7 @@ def main():
             try:
                 processes.append(start('backend', backend_port, env, log))
                 processes.append(start('ai_notification_service', voice_port, env, log))
-                token = request(core, '/api/auth/login', {'email': 'admin@mediconnect.ai', 'password': 'admin123'})['token']
+                token = request(core, '/api/auth/login', {'email': 'admin@mediconnect.ai', 'password': 'admin@123'})['token']
                 request(core, '/api/doctors/', {'name': 'Dr. Patel', 'department': 'Cardiology', 'email': 'patel@example.com'}, token)
                 form = {'CallSid': 'CA-smoke-persistent-call', 'From': '+919876543210'}
                 xml = request(voice, '/api/v1/voice/incoming', form, form=True)

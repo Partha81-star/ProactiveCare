@@ -10,16 +10,30 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     children = []
     options = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == 'nt' else {}
+    local_env = os.environ.copy()
+    local_env['APP_ENV'] = 'development'
+    local_env['CORS_ORIGINS'] = ','.join(
+        f'http://{host}:{port}'
+        for host in ('localhost', '127.0.0.1')
+        for port in (5173, 5174)
+    )
     try:
         for service, port in [('backend', 8000), ('ai_notification_service', 8001)]:
             python = ROOT / service / '.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
             if not python.exists():
                 raise RuntimeError('Run scripts/setup.ps1 first (or install both .venv environments).')
+            service_env = local_env.copy()
+            if service == 'ai_notification_service':
+                service_env['BACKEND_BASE_URL'] = 'http://127.0.0.1:8000'
             children.append(subprocess.Popen([str(python), '-m', 'uvicorn', 'app.main:app',
-                                               '--host', '127.0.0.1', '--port', str(port)], cwd=ROOT / service, **options))
+                                               '--host', '127.0.0.1', '--port', str(port)], cwd=ROOT / service,
+                                               env=service_env, **options))
+        frontend_env = local_env.copy()
+        frontend_env['VITE_API_BASE_URL'] = 'http://127.0.0.1:8000/api'
+        frontend_env['VITE_VOICE_BASE_URL'] = 'http://127.0.0.1:8001'
         children.append(subprocess.Popen(['cmd', '/c', 'npm', 'run', 'dev', '--', '--host', '127.0.0.1'] if os.name == 'nt'
                                          else ['npm', 'run', 'dev', '--', '--host', '127.0.0.1'],
-                                         cwd=ROOT / 'mediconnect-ai', **options))
+                                         cwd=ROOT / 'mediconnect-ai', env=frontend_env, **options))
         print('Frontend: http://localhost:5173 | Backend: http://localhost:8000/docs | Voice: http://localhost:8001/docs', flush=True)
         while all(child.poll() is None for child in children):
             time.sleep(.5)

@@ -10,9 +10,9 @@ import {
   RiArrowRightLine, } from 'react-icons/ri';
 
 const MOCK_USERS = [
-  { email: 'admin@mediconnect.ai',  password: 'admin123', name: 'Dr. Admin User',    role: 'admin'   },
-  { email: 'doctor@mediconnect.ai', password: 'doctor123', name: 'Dr. Emily Chen',   role: 'doctor'  },
-  { email: 'nurse@mediconnect.ai',  password: 'nurse123',  name: 'Nurse Sarah Kim',  role: 'nurse'   },
+  { email: 'admin@mediconnect.ai',  password: 'admin@123', name: 'Dr. Admin User',    role: 'admin'   },
+  { email: 'doctor@mediconnect.ai', password: 'doctor@123', name: 'Dr. Emily Chen',   role: 'doctor'  },
+  { email: 'nurse@mediconnect.ai',  password: 'nurse@123',  name: 'Nurse Sarah Kim',  role: 'nurse'   },
 ];
 
 const FEATURES = [
@@ -159,6 +159,13 @@ const Login = () => {
                 >
                   {u.role}
                 </button>
+              ))}
+            </div>
+            <div className="space-y-1 pt-1 text-[11px] text-slate-600">
+              {MOCK_USERS.map(u => (
+                <p key={u.role} className="break-all">
+                  <span className="font-semibold capitalize">{u.role}:</span> {u.email} / <span className="font-mono">{u.password}</span>
+                </p>
               ))}
             </div>
           </div>}

@@ -48,6 +48,9 @@ api.interceptors.response.use(
       error.response?.data?.detail ||
       error.message ||
       'An unexpected error occurred.';
+    if (!error.response && error.code === 'ERR_NETWORK') {
+      message = 'Cannot reach the backend. Start the project and refresh this page.';
+    }
     if (Array.isArray(message)) message = message.map(item => item.msg || 'Invalid field').join('; ');
 
     return Promise.reject({ status, message, raw: error });
